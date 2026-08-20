@@ -2,15 +2,15 @@ package graph
 
 import (
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/knowledge"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 )
 
-// Build constructs the relationship graph from the knowledge index and ownership results.
+// Build constructs the relationship graph from the knowledge index.
 // Relationships are organized by semantic function:
 //   - Structural composition (UsesServiceAccount, SelectsWorkload, BindsSubject, etc.)
 //   - Framework ownership (Owns via ownerReferences)
 //   - Provenance boundary (BelongsToRelease, ManagedBy)
-func Build(index *knowledge.Index, ownershipResults map[string]*ownership.Result) *Graph {
+//   - Authority handoff (Reconciles, Generates)
+func Build(index *knowledge.Index) *Graph {
 	g := New()
 	records := index.List()
 
@@ -27,9 +27,6 @@ func Build(index *knowledge.Index, ownershipResults map[string]*ownership.Result
 
 		// --- Framework: ownerReference chains ---
 		buildOwnerRefEdges(record, byUID, g)
-
-		// --- Provenance: ManagedBy ---
-		buildManagedByEdge(record, key, ownershipResults, records, g)
 
 		// --- Structural: UsesServiceAccount ---
 		buildUsesServiceAccount(record, key, byKindNsName, g)

@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/knowledge"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 )
 
 // Evidence confidence levels
@@ -60,25 +59,6 @@ func buildOwnerRefEdges(record *knowledge.ResourceRecord, byUID map[string]*know
 				Type:       Owns,
 				Evidence:   "ownerReferences",
 				Confidence: ConfOwnerReference,
-			})
-		}
-	}
-}
-
-func buildManagedByEdge(record *knowledge.ResourceRecord, key string, ownershipResults map[string]*ownership.Result, records []*knowledge.ResourceRecord, g *Graph) {
-	result, ok := ownershipResults[key]
-	if !ok || result.Owner == nil {
-		return
-	}
-	if result.Owner.Type == "ArgoCD" {
-		ownerKey := findOwnerResource(result.Owner, records)
-		if ownerKey != "" && ownerKey != key {
-			g.AddEdge(Edge{
-				Source:     ownerKey,
-				Target:     key,
-				Type:       ManagedBy,
-				Evidence:   result.Owner.Type,
-				Confidence: ConfExplicitField,
 			})
 		}
 	}
@@ -512,15 +492,6 @@ func labelsMatchSelector(labels, selector map[string]string) bool {
 		}
 	}
 	return true
-}
-
-func findOwnerResource(owner *ownership.OwnerRef, records []*knowledge.ResourceRecord) string {
-	for _, r := range records {
-		if r.Identity.Name == owner.Name && r.Identity.Namespace == owner.Namespace {
-			return r.Key()
-		}
-	}
-	return ""
 }
 
 // buildArgoCDReconciles emits Reconciles edges from ArgoCD Application CRs

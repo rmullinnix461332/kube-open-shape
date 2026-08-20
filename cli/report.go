@@ -3,9 +3,10 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
+	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine/setup"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/shape"
 	"github.com/spf13/cobra"
 )
@@ -25,17 +26,37 @@ func runReport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resolver := ownership.NewResolver()
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
 
-	// Ownership counts
-	ownerCounts := make(map[string]int)
+	// Ownership via new engine
+	ownerEng, err := setup.DefaultEngine()
+	if err != nil {
+		return fmt.Errorf("ownership engine: %w", err)
+	}
+	ownerResults := ownerEng.EvaluateAll(index)
+
+	// Count by authority status
+	var managedCount, noAuthorityCount, contendedCount int
+	authorities := make(map[string]int) // authority name → resource count
 	for _, result := range ownerResults {
-		ownerCounts[string(result.Classification)]++
+		switch {
+		case result.NoAuthority:
+			noAuthorityCount++
+		case result.Contended:
+			contendedCount++
+		default:
+			managedCount++
+			if result.LifecycleAuthority != nil {
+				authorities[result.LifecycleAuthority.Authority.Name]++
+			} else if result.AuthorityRecord != nil {
+				authorities[result.AuthorityRecord.Authority.Name]++
+			} else if result.RuntimeController != nil {
+				authorities[result.RuntimeController.Authority.Name]++
+			}
+		}
 	}
 
-	// Candidate shapes — use same pipeline as collectCandidates()
+	// Candidate shapes
 	classifiedRoots := make(map[string]bool)
 	subgraphs := shape.SegmentUnclassified(index, g, classifiedRoots)
 	groups := shape.GroupCandidates(subgraphs, g)
@@ -45,8 +66,11 @@ func runReport(cmd *cobra.Command, args []string) error {
 			"total": index.Count(),
 		},
 		"ownership": map[string]any{
-			"total":           len(ownerResults),
-			"classifications": ownerCounts,
+			"total":       len(ownerResults),
+			"managed":     managedCount,
+			"noAuthority": noAuthorityCount,
+			"contended":   contendedCount,
+			"authorities": len(authorities),
 		},
 		"relationships": map[string]any{
 			"edges": g.EdgeCount(),
@@ -72,10 +96,10 @@ func runReport(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Println("Ownership:")
 	total := len(ownerResults)
-	for class, count := range ownerCounts {
-		pct := float64(count) / float64(total) * 100
-		fmt.Printf("  %-16s %4d  (%.1f%%)\n", class, count, pct)
-	}
+	fmt.Printf("  %-20s %4d  (%.1f%%)\n", "Managed", managedCount, pct(managedCount, total))
+	fmt.Printf("  %-20s %4d  (%.1f%%)\n", "No Known Authority", noAuthorityCount, pct(noAuthorityCount, total))
+	fmt.Printf("  %-20s %4d  (%.1f%%)\n", "Contended", contendedCount, pct(contendedCount, total))
+	fmt.Printf("  %-20s %4d\n", "Authorities", len(authorities))
 	fmt.Println()
 	fmt.Println("Relationships:")
 	fmt.Printf("  Edges: %d\n", g.EdgeCount())
@@ -84,13 +108,27 @@ func runReport(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Candidate Shape Groups (model: %s):\n", modelName(groups))
 	fmt.Printf("  Groups: %d\n", len(groups))
 	fmt.Printf("  Instances: %d\n", countGroupInstances(groups))
-	for _, grp := range groups {
+
+	// Sort groups by instance count descending for readability
+	sorted := make([]*shape.CandidateShapeGroup, len(groups))
+	copy(sorted, groups)
+	sort.Slice(sorted, func(i, j int) bool {
+		return len(sorted[i].Instances) > len(sorted[j].Instances)
+	})
+	for _, grp := range sorted {
 		fmt.Printf("    %s (%s) — %d instances [%s/%s/%s]\n",
 			grp.ID, grp.RootKind, len(grp.Instances),
 			grp.Evidence.Recurrence, grp.Evidence.Cohesion, grp.Evidence.Coverage)
 	}
 
 	return nil
+}
+
+func pct(n, total int) float64 {
+	if total == 0 {
+		return 0
+	}
+	return float64(n) / float64(total) * 100
 }
 
 func countGroupInstances(groups []*shape.CandidateShapeGroup) int {

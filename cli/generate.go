@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/shape"
 	"github.com/spf13/cobra"
 )
@@ -91,9 +90,7 @@ func runDefinitionTest(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resolver := ownership.NewResolver()
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
 
 	// Get candidates using the same pipeline
 	classifiedRoots := make(map[string]bool)

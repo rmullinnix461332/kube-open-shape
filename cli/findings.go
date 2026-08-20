@@ -8,7 +8,6 @@ import (
 
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/janitor"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/store"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -148,9 +147,7 @@ func runFindingsEvaluate(cmd *cobra.Command, args []string) error {
 	}
 	defer st.Close()
 
-	resolver := ownership.NewResolver()
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
 
 	rules := janitor.DefaultRules()
 	logger := logrus.New()

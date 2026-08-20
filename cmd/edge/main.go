@@ -13,7 +13,6 @@ import (
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/janitor"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/knowledge"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/store"
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/dynamic"
@@ -68,9 +67,6 @@ func main() {
 		logger.WithField("path", dbPath).Info("SQLite store opened")
 	}
 
-	// Initialize ownership resolver
-	resolver := ownership.NewResolver()
-
 	// Initialize janitor engine with findings table
 	var jan *janitor.Engine
 	if st != nil {
@@ -78,8 +74,7 @@ func main() {
 			logger.WithError(err).Warn("Failed to migrate findings table")
 		} else {
 			rules := janitor.DefaultRules()
-			ownerResults := resolver.ResolveAll(index)
-			g := graph.Build(index, ownerResults)
+			g := graph.Build(index)
 			jan = janitor.NewEngine(rules, st, index, g, logger)
 
 			// Run initial evaluation after collection
@@ -91,7 +86,7 @@ func main() {
 	}
 
 	// Start HTTP API server
-	server := api.NewServer(index, resolver, st, jan, apiAddr)
+	server := api.NewServer(index, st, jan, apiAddr)
 	go func() {
 		logger.WithField("addr", apiAddr).Info("Starting HTTP API server")
 		if err := server.Start(); err != nil {

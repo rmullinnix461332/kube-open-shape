@@ -9,7 +9,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/shape"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/store"
 	"github.com/spf13/cobra"
@@ -210,9 +209,7 @@ func collectCandidates() ([]*shape.CandidateShapeGroup, error) {
 		return nil, err
 	}
 
-	resolver := ownership.NewResolver()
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
 
 	classifiedRoots := make(map[string]bool)
 	subgraphs := shape.SegmentUnclassified(index, g, classifiedRoots)

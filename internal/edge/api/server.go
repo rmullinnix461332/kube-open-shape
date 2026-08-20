@@ -14,7 +14,6 @@ import (
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/grouping"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/janitor"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/knowledge"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine/setup"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/shape"
@@ -24,7 +23,6 @@ import (
 // Server is the local HTTP API server
 type Server struct {
 	index     *knowledge.Index
-	resolver  *ownership.Resolver
 	store     *store.Store
 	janitor   *janitor.Engine
 	addr      string
@@ -32,10 +30,9 @@ type Server struct {
 }
 
 // NewServer creates a local API server
-func NewServer(index *knowledge.Index, resolver *ownership.Resolver, st *store.Store, jan *janitor.Engine, addr string) *Server {
+func NewServer(index *knowledge.Index, st *store.Store, jan *janitor.Engine, addr string) *Server {
 	return &Server{
 		index:     index,
-		resolver:  resolver,
 		store:     st,
 		janitor:   jan,
 		addr:      addr,
@@ -76,7 +73,7 @@ func (s *Server) handleKnowledge(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
 
 	records := s.index.List()
-	ownerResults := s.resolver.ResolveAll(s.index)
+	ownerResults := s.resolveOwnership()
 
 	var items []map[string]any
 	for _, rec := range records {
@@ -94,14 +91,25 @@ func (s *Server) handleKnowledge(w http.ResponseWriter, r *http.Request) {
 			"createdAt": rec.Identity.CreatedAt,
 		}
 		if result, ok := ownerResults[rec.Key()]; ok {
-			item["ownership"] = map[string]any{
-				"classification": result.Classification,
-				"confidence":     result.Confidence,
+			auth := apiPrimaryAuthority(result)
+			classification := "Unknown"
+			confidence := ""
+			if result.NoAuthority {
+				classification = "NoAuthority"
+			} else if result.Contended {
+				classification = "Contended"
+			} else if auth != nil {
+				classification = "Managed"
+				confidence = string(auth.EvidenceStrength)
 			}
-			if result.Owner != nil {
+			item["ownership"] = map[string]any{
+				"classification": classification,
+				"confidence":     confidence,
+			}
+			if auth != nil {
 				item["owner"] = map[string]any{
-					"type": result.Owner.Type,
-					"name": result.Owner.Name,
+					"type": auth.Authority.Type,
+					"name": auth.Authority.Name,
 				}
 			}
 		}
@@ -123,7 +131,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ownerResult := s.resolver.Resolve(rec, s.index)
+	ownerResult := s.resolveOwnershipSingle(rec)
 
 	item := map[string]any{
 		"kind":        rec.Identity.GVK.Kind,
@@ -204,8 +212,7 @@ func (s *Server) handleOwnershipSummary(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleShapes(w http.ResponseWriter, r *http.Request) {
-	ownerResults := s.resolver.ResolveAll(s.index)
-	g := graph.Build(s.index, ownerResults)
+	g := graph.Build(s.index)
 
 	// Load default definitions and run matcher
 	compiler := shape.NewCompiler()
@@ -250,8 +257,7 @@ func (s *Server) handleShapes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCandidates(w http.ResponseWriter, r *http.Request) {
-	ownerResults := s.resolver.ResolveAll(s.index)
-	g := graph.Build(s.index, ownerResults)
+	g := graph.Build(s.index)
 
 	classifiedRoots := make(map[string]bool)
 	subgraphs := shape.SegmentUnclassified(s.index, g, classifiedRoots)
@@ -280,12 +286,19 @@ func (s *Server) handleCandidates(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	records := s.index.List()
-	ownerResults := s.resolver.ResolveAll(s.index)
-	g := graph.Build(s.index, ownerResults)
+	ownerResults := s.resolveOwnership()
+	g := graph.Build(s.index)
 
-	ownerCounts := make(map[string]int)
+	var managedCount, noAuthorityCount, contendedCount int
 	for _, result := range ownerResults {
-		ownerCounts[string(result.Classification)]++
+		switch {
+		case result.NoAuthority:
+			noAuthorityCount++
+		case result.Contended:
+			contendedCount++
+		default:
+			managedCount++
+		}
 	}
 
 	classifiedRoots := make(map[string]bool)
@@ -297,8 +310,10 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 			"total": len(records),
 		},
 		"ownership": map[string]any{
-			"total":           len(ownerResults),
-			"classifications": ownerCounts,
+			"total":       len(ownerResults),
+			"managed":     managedCount,
+			"noAuthority": noAuthorityCount,
+			"contended":   contendedCount,
 		},
 		"candidates": map[string]any{
 			"groups":    len(groups),
@@ -315,8 +330,8 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 // handleGraph serves the full knowledge-graph snapshot with nodes, edges, and model metadata.
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	ownerResults := s.resolver.ResolveAll(s.index)
-	g := graph.Build(s.index, ownerResults)
+	ownerResults := s.resolveOwnership()
+	g := graph.Build(s.index)
 	records := s.index.List()
 	now := time.Now().UTC()
 
@@ -340,15 +355,25 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 		if result, ok := ownerResults[rec.Key()]; ok {
-			ow := map[string]any{
-				"classification": string(result.Classification),
-				"confidence":     string(result.Confidence),
+			auth := apiPrimaryAuthority(result)
+			classification := "Unknown"
+			confidence := ""
+			if result.NoAuthority {
+				classification = "NoAuthority"
+			} else if result.Contended {
+				classification = "Contended"
+			} else if auth != nil {
+				classification = "Managed"
+				confidence = string(auth.EvidenceStrength)
 			}
-			if result.Owner != nil {
+			ow := map[string]any{
+				"classification": classification,
+				"confidence":     confidence,
+			}
+			if auth != nil {
 				ow["owner"] = map[string]any{
-					"type":      result.Owner.Type,
-					"name":      result.Owner.Name,
-					"namespace": result.Owner.Namespace,
+					"type": auth.Authority.Type,
+					"name": auth.Authority.Name,
 				}
 			}
 			node["ownership"] = ow
@@ -764,4 +789,22 @@ func apiPrimaryAuthority(r *engine.OwnershipResult) *engine.LayerResult {
 		return r.RuntimeController
 	}
 	return nil
+}
+
+// resolveOwnership runs the new ownership engine and returns results for all resources.
+func (s *Server) resolveOwnership() map[string]*engine.OwnershipResult {
+	ownerEng, err := setup.DefaultEngine()
+	if err != nil {
+		return make(map[string]*engine.OwnershipResult)
+	}
+	return ownerEng.EvaluateAll(s.index)
+}
+
+// resolveOwnershipSingle resolves ownership for a single resource.
+func (s *Server) resolveOwnershipSingle(rec *knowledge.ResourceRecord) *engine.OwnershipResult {
+	results := s.resolveOwnership()
+	if result, ok := results[rec.Key()]; ok {
+		return result
+	}
+	return &engine.OwnershipResult{ResourceKey: rec.Key(), NoAuthority: true}
 }

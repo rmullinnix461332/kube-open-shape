@@ -7,7 +7,8 @@ import (
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/grouping"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/knowledge"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
+	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine"
+	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine/setup"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/release"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/shape"
 	"github.com/spf13/cobra"
@@ -150,9 +151,7 @@ func describeShapes(role string) error {
 		return err
 	}
 
-	resolver := ownership.NewResolver()
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
 
 	compiler := shape.NewCompiler()
 	for _, def := range defaultShapeDefinitions() {
@@ -201,36 +200,32 @@ func describeOwnershipAuthority(authorityName string) error {
 		return err
 	}
 
-	resolver := ownership.NewResolver()
-	chains := resolver.ResolveAllChains(index)
+	ownerEng, err := setup.DefaultEngine()
+	if err != nil {
+		return fmt.Errorf("ownership engine: %w", err)
+	}
+	ownerResults := ownerEng.EvaluateAll(index)
 
 	// Find all records matching this authority
 	var direct, inherited int
-	var authType, authNS, authState string
-	var evidenceTypes []string
-	seenEvidence := make(map[string]bool)
+	var authType string
 
-	for _, rec := range chains {
-		if rec.LifecycleAuthority == nil {
+	for _, result := range ownerResults {
+		auth := primaryAuthority(result)
+		if auth == nil {
 			continue
 		}
-		if !strings.EqualFold(rec.LifecycleAuthority.Name, authorityName) {
+		if !strings.EqualFold(auth.Authority.Name, authorityName) {
 			continue
 		}
-		authType = rec.LifecycleAuthority.Type
-		authNS = rec.LifecycleAuthority.Namespace
-		authState = rec.LifecycleAuthority.State
-		if rec.Attribution == ownership.AttributionDirect {
+		authType = auth.Authority.Type
+		if auth.ResourceRole == "AuthorityRecord" {
+			continue // don't count the authority record itself
+		}
+		if result.LifecycleAuthority != nil {
 			direct++
 		} else {
 			inherited++
-		}
-		for _, ev := range rec.LifecycleAuthority.Evidence {
-			key := ev.Detector + ":" + ev.SourceField
-			if !seenEvidence[key] {
-				seenEvidence[key] = true
-				evidenceTypes = append(evidenceTypes, ev.SourceField+"="+ev.Value)
-			}
 		}
 	}
 
@@ -245,24 +240,12 @@ func describeOwnershipAuthority(authorityName string) error {
 	fmt.Printf("Lifecycle Authority:\n")
 	fmt.Printf("  Type:       %s\n", authType)
 	fmt.Printf("  Name:       %s\n", authorityName)
-	if authNS != "" {
-		fmt.Printf("  Namespace:  %s\n", authNS)
-	}
-	fmt.Printf("  State:      %s\n", authState)
 	fmt.Printf("  Resources:  %d\n", direct+inherited)
 
 	// Coverage
 	fmt.Printf("\nCoverage:\n")
 	fmt.Printf("  Directly declared:     %d\n", direct)
 	fmt.Printf("  Runtime descendants:   %d\n", inherited)
-
-	// Evidence
-	if len(evidenceTypes) > 0 {
-		fmt.Printf("\nEvidence:\n")
-		for _, ev := range evidenceTypes {
-			fmt.Printf("  %s\n", ev)
-		}
-	}
 
 	return nil
 }
@@ -299,60 +282,40 @@ func describeOwnershipResource(kind, name string) error {
 		return fmt.Errorf("resource %s/%s not found in namespace %s", kind, name, filterNamespace)
 	}
 
-	// Resolve chain
-	resolver := ownership.NewResolver()
-	chain := resolver.ResolveChain(target, index)
+	// Resolve ownership via new engine
+	ownerEng2, err := setup.DefaultEngine()
+	if err != nil {
+		return fmt.Errorf("ownership engine: %w", err)
+	}
+	allResults := ownerEng2.EvaluateAll(index)
+	result := allResults[target.Key()]
 
 	// Display
 	fmt.Printf("Resource:       %s\n", target.Key())
-	fmt.Printf("Attribution:    %s\n", attributionDisplayForDescribe(chain))
-
-	// Lifecycle authority
-	if chain.LifecycleAuthority != nil {
-		fmt.Printf("\nLifecycle Authority:\n")
-		fmt.Printf("  Type:       %s\n", chain.LifecycleAuthority.Type)
-		fmt.Printf("  Name:       %s\n", chain.LifecycleAuthority.Name)
-		if chain.LifecycleAuthority.Namespace != "" {
-			fmt.Printf("  Namespace:  %s\n", chain.LifecycleAuthority.Namespace)
-		}
-		fmt.Printf("  State:      %s\n", chain.LifecycleAuthority.State)
-		if len(chain.LifecycleAuthority.Evidence) > 0 {
-			fmt.Printf("  Evidence:\n")
-			for _, ev := range chain.LifecycleAuthority.Evidence {
-				fmt.Printf("    %s: %s (%s)\n", ev.Detector, ev.SourceField, ev.Confidence)
-			}
+	if result != nil {
+		auth := primaryAuthority(result)
+		if auth != nil {
+			fmt.Printf("Attribution:    %s/%s\n", auth.Authority.Type, auth.Authority.Name)
+			fmt.Printf("\nLifecycle Authority:\n")
+			fmt.Printf("  Type:       %s\n", auth.Authority.Type)
+			fmt.Printf("  Name:       %s\n", auth.Authority.Name)
+			fmt.Printf("  Confidence: %s\n", auth.EvidenceStrength)
+		} else {
+			fmt.Printf("Attribution:    No known authority\n")
+			fmt.Printf("\nLifecycle Authority: No known authority\n")
 		}
 	} else {
+		fmt.Printf("Attribution:    No known authority\n")
 		fmt.Printf("\nLifecycle Authority: No known authority\n")
-	}
-
-	// Ownership chain
-	if len(chain.RuntimeChain) > 0 {
-		fmt.Printf("\nOwnership Chain:\n")
-		fmt.Printf("  %s\n", target.Key())
-		for i, link := range chain.RuntimeChain {
-			indent := strings.Repeat("  ", i+1)
-			fmt.Printf("%s  └── %s (%s)\n", indent, link.ResourceKey, link.Relationship)
-		}
-		if chain.LifecycleAuthority != nil {
-			indent := strings.Repeat("  ", len(chain.RuntimeChain)+1)
-			fmt.Printf("%s  └── %s/%s (lifecycle authority)\n", indent,
-				chain.LifecycleAuthority.Type, chain.LifecycleAuthority.Name)
-		}
-	} else if chain.LifecycleAuthority != nil {
-		fmt.Printf("\nOwnership Chain:\n")
-		fmt.Printf("  %s\n", target.Key())
-		fmt.Printf("    └── %s/%s (lifecycle authority)\n",
-			chain.LifecycleAuthority.Type, chain.LifecycleAuthority.Name)
 	}
 
 	// "If deleted" reasoning
 	fmt.Printf("\nIf deleted:\n")
-	if len(chain.RuntimeChain) > 0 {
-		fmt.Printf("  Would be recreated by: %s (Kubernetes controller)\n", chain.RuntimeChain[0].ResourceKey)
-	} else if chain.LifecycleAuthority != nil {
-		fmt.Printf("  Would be recreated by: %s/%s (next reconciliation)\n",
-			chain.LifecycleAuthority.Type, chain.LifecycleAuthority.Name)
+	if result != nil && result.RuntimeController != nil {
+		fmt.Printf("  Would be recreated by: %s (Kubernetes controller)\n", result.RuntimeController.Authority.Name)
+	} else if result != nil && primaryAuthority(result) != nil {
+		auth := primaryAuthority(result)
+		fmt.Printf("  Would be recreated by: %s/%s (next reconciliation)\n", auth.Authority.Type, auth.Authority.Name)
 	} else {
 		fmt.Printf("  Would NOT be recreated (no known lifecycle authority)\n")
 	}
@@ -360,11 +323,24 @@ func describeOwnershipResource(kind, name string) error {
 	return nil
 }
 
-func attributionDisplayForDescribe(rec *ownership.OwnershipRecord) string {
-	if rec.LifecycleAuthority == nil {
-		return "No known authority"
+// classifyForDisplay returns a display classification from the new engine result.
+func classifyForDisplay(r *engine.OwnershipResult) string {
+	if r.Contended {
+		return "Contended"
 	}
-	return string(rec.Attribution)
+	if r.NoAuthority {
+		return "No Known Authority"
+	}
+	if r.LifecycleAuthority != nil {
+		return "Managed"
+	}
+	if r.AuthorityRecord != nil {
+		return "Managed"
+	}
+	if r.RuntimeController != nil {
+		return "Managed (Runtime)"
+	}
+	return "Unknown"
 }
 
 func describeResource(kindOrSlash, name string) error {
@@ -407,40 +383,49 @@ func describeResource(kindOrSlash, name string) error {
 	fmt.Printf("UID:             %s\n", target.Identity.UID)
 	fmt.Printf("Created:         %s\n", target.Identity.CreatedAt.Format("2006-01-02 15:04:05"))
 
-	resolver := ownership.NewResolver()
-	ownerResult := resolver.Resolve(target, index)
+	ownerEng, err := setup.DefaultEngine()
+	if err != nil {
+		return fmt.Errorf("ownership engine: %w", err)
+	}
+	ownerResults := ownerEng.EvaluateAll(index)
+	ownerResult := ownerResults[target.Key()]
+
 	fmt.Printf("\nOwnership:\n")
-	fmt.Printf("  Classification: %s\n", ownerResult.Classification)
-	fmt.Printf("  Confidence:     %s\n", ownerResult.Confidence)
-	if ownerResult.Owner != nil {
-		fmt.Printf("  Owner:          %s/%s\n", ownerResult.Owner.Type, ownerResult.Owner.Name)
+	if ownerResult != nil {
+		fmt.Printf("  Classification: %s\n", classifyForDisplay(ownerResult))
+		auth := primaryAuthority(ownerResult)
+		if auth != nil {
+			fmt.Printf("  Confidence:     %s\n", auth.EvidenceStrength)
+			fmt.Printf("  Owner:          %s/%s\n", auth.Authority.Type, auth.Authority.Name)
+		}
+	} else {
+		fmt.Printf("  Classification: Unknown\n")
 	}
 
 	clusterID := describeClusterID()
 	groups := grouping.BuildGroups(index, clusterID)
 	key := target.Key()
 	var memberOf []string
-	for _, g := range groups {
-		if g.GroupType != grouping.GroupTypeApplication {
+	for _, grp := range groups {
+		if grp.GroupType != grouping.GroupTypeApplication {
 			continue
 		}
-		for _, m := range g.Members {
+		for _, m := range grp.Members {
 			if m.ResourceKey == key {
-				memberOf = append(memberOf, g.Name)
+				memberOf = append(memberOf, grp.Name)
 				break
 			}
 		}
 	}
 	if len(memberOf) > 0 {
 		fmt.Printf("\nGroups:\n")
-		for _, g := range memberOf {
-			fmt.Printf("  %s\n", g)
+		for _, grp := range memberOf {
+			fmt.Printf("  %s\n", grp)
 		}
 	}
 
 	// Shape classification
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
 
 	compiler := shape.NewCompiler()
 	for _, def := range defaultShapeDefinitions() {

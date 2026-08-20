@@ -7,7 +7,6 @@ import (
 
 	"github.com/kube-open-shape/kube-open-shape/api/v1alpha1"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/shape"
 	"github.com/spf13/cobra"
 )
@@ -37,9 +36,7 @@ func runShapes(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build graph
-	resolver := ownership.NewResolver()
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
 
 	// Load default definitions (hardcoded for now until CRD loading is implemented)
 	compiler := shape.NewCompiler()
@@ -150,9 +147,7 @@ func runShapesDetail(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resolver := ownership.NewResolver()
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
 
 	compiler := shape.NewCompiler()
 	for _, def := range defaultShapeDefinitions() {

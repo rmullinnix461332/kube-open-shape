@@ -10,7 +10,8 @@ import (
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/grouping"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/knowledge"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
+	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine"
+	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine/setup"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/shape"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
@@ -125,9 +126,14 @@ func runGraphExport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resolver := ownership.NewResolver()
-	ownerResults := resolver.ResolveAll(index)
-	g := graph.Build(index, ownerResults)
+	g := graph.Build(index)
+
+	// Resolve ownership via new engine
+	ownerEng, ownerErr := setup.DefaultEngine()
+	var ownerResults map[string]*engine.OwnershipResult
+	if ownerErr == nil {
+		ownerResults = ownerEng.EvaluateAll(index)
+	}
 
 	clusterID := graphClusterID
 	if clusterID == "" {
@@ -156,15 +162,25 @@ func runGraphExport(cmd *cobra.Command, args []string) error {
 		}
 
 		if result, ok := ownerResults[rec.Key()]; ok {
-			node.Ownership = ownershipInfo{
-				Classification: string(result.Classification),
-				Confidence:     string(result.Confidence),
+			auth := primaryAuthority(result)
+			classification := "Unknown"
+			confidence := ""
+			if result.NoAuthority {
+				classification = "NoAuthority"
+			} else if result.Contended {
+				classification = "Contended"
+			} else if auth != nil {
+				classification = "Managed"
+				confidence = string(auth.EvidenceStrength)
 			}
-			if result.Owner != nil {
+			node.Ownership = ownershipInfo{
+				Classification: classification,
+				Confidence:     confidence,
+			}
+			if auth != nil {
 				node.Ownership.Owner = &ownerInfo{
-					Type:      result.Owner.Type,
-					Name:      result.Owner.Name,
-					Namespace: result.Owner.Namespace,
+					Type: auth.Authority.Type,
+					Name: auth.Authority.Name,
 				}
 			}
 		}

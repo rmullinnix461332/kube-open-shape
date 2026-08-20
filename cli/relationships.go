@@ -6,7 +6,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
-	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership"
 	"github.com/spf13/cobra"
 )
 
@@ -14,11 +13,11 @@ var relDepth int
 
 func newRelationshipsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "relationships [kind] [name]",
+		Use:     "relationships [kind] [name]",
 		Aliases: []string{"relationship", "rel"},
-		Short: "Show resource relationships",
-		Args:  cobra.RangeArgs(0, 2),
-		RunE:  runRelationships,
+		Short:   "Show resource relationships",
+		Args:    cobra.RangeArgs(0, 2),
+		RunE:    runRelationships,
 	}
 	return cmd
 }
@@ -40,9 +39,7 @@ func runRelationships(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resolver := ownership.NewResolver()
-	results := resolver.ResolveAll(index)
-	g := graph.Build(index, results)
+	g := graph.Build(index)
 
 	// If specific resource given, show its edges
 	if len(args) == 2 {
@@ -81,9 +78,7 @@ func runReachable(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resolver := ownership.NewResolver()
-	results := resolver.ResolveAll(index)
-	g := graph.Build(index, results)
+	g := graph.Build(index)
 
 	kind := args[0]
 	name := args[1]
