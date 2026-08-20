@@ -181,7 +181,7 @@ ReplicaSet/argocd/argocd-server-6c967757bb                     Helm/argocd      
 
 #### Observation
 
-The argocd Helm authority controls 64 resources: 58 direct (explicitly in the Helm release manifest) and 6 inherited (ReplicaSets created by Kubernetes controllers as framework descendants of Helm-managed Deployments).
+The argocd Helm authority controls 64 resources: 58 resolved as direct ownership attribution and 6 inherited (ReplicaSets created by Kubernetes controllers as framework descendants of Helm-managed Deployments).
 
 ### 1.6 Drill Down to One Resource
 
@@ -341,16 +341,16 @@ Each view applies different inclusion semantics to the same underlying resources
 
 | View | Count | Inclusion semantics |
 |------|-------|---------------------|
-| Helm release inventory | 61 | Resources listed in the release manifest |
-| Ownership direct | 58 | Resources where the engine resolved `Helm/argocd` as lifecycle authority (excludes 3 resources with corroborating-only evidence that resolved to a different primary authority) |
+| Helm release inventory | 61 | Resources declared in the release manifest |
+| Ownership direct | 58 | Resources resolved to `Helm/argocd` as primary lifecycle authority |
 | Ownership inherited | 6 | ReplicaSets attributed through ownerReference chain |
-| Ownership total | 64 | Direct (58) + inherited (6) = 64 |
+| Ownership total | 64 | Direct (58) + inherited (6) |
 | Application group | 64 | Logical group members (corroborated by label, release, and part-of evidence) |
 | Authority record | 1 | Helm release Secret — establishes the authority, excluded from managed-resource counts |
 
-The 61-to-58 difference: three resources in the Helm manifest have label metadata that causes the ownership engine to attribute them through a corroborating path rather than the authoritative Helm path (they appear in `kos ownership argocd` with `Corroborating` evidence rather than `Authoritative`). The group uses broader membership criteria (labels + release association) and arrives at 64 by including the 6 inherited ReplicaSets.
+The Helm release records 61 declared resources. Ownership resolves 58 resources directly to `Helm/argocd` and inherits 6 ReplicaSets through Kubernetes owner references, producing 64 owned resources. The three-resource difference between release membership (61) and direct authority attribution (58) reflects different inclusion and resolution semantics. A resource-level reconciliation is required to identify the exact exclusions or alternate attributions; KOS does not yet expose that comparison as a single command.
 
-KOS does not currently expose a single reconciliation command. The semantic difference between release inventory, ownership attribution, and group membership is intentional — they answer different questions about the same resources.
+The group arrives at 64 by including both the 58 directly-attributed and 6 inherited resources through broader membership criteria (labels + release association).
 
 ### 2.5 Cross-Axis: Deployment Authority and Janitor Actionability
 
@@ -596,7 +596,7 @@ Classification:  27  (ClassifiedAs)
 Total:          734 edges, 535 nodes
 ```
 
-The `kos relationships` command (and `kos report`) shows 297 edges across 357 nodes. This includes the structural (279) and provenance (18) categories — the edges produced by `graph.Build`. The full knowledge graph export adds grouping and classification edges for a total of 734.
+The `kos relationships` command (and `kos report`) shows 297 edges across 357 nodes. This includes the structural (279) and provenance (18) categories — the edges produced by `graph.Build`. The full knowledge graph export adds grouping and classification edges for a total of 734 edges across 535 nodes (509 Kubernetes resources + 26 logical resource group nodes representing authorities and application groups).
 
 ### 4.2 Inspect Relationships for One Workload
 
@@ -757,7 +757,7 @@ Argo CD:
     → Helm authority (chart:argo-cd@10.4.0, revision 1)
     → component hierarchy (7 workloads, 8 components)
     → individual resource (ConfigMap argocd-ssh-known-hosts-cm: 3 consumers)
-    → dependency graph (Service → Deployment → ConfigMaps → Secret)
+    → dependency graph (Service → Deployment → {ConfigMaps, Secret, ServiceAccount, ReplicaSet})
 
 Stateful fixture:
   Application group (7 resources)
