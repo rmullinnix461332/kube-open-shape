@@ -45,11 +45,18 @@ func (e *Engine) Health() SubsystemHealth {
 }
 
 // Evaluate runs all rules against the current resource state and persists findings.
-// Phase 1: observe-only. No escalation beyond reporting.
+// Phase 1: observe-only reporting.
+// Phase 2: when grace expires + Actionable + rule permits Annotate → propose plan.
 //
 // Subsystem failures produce Indeterminate findings, not silence.
 func (e *Engine) Evaluate() error {
 	now := time.Now()
+
+	// Expire stale plans
+	if e.store != nil {
+		e.store.ExpireStalePlans(now)
+		e.store.ExpireApprovedPlans(now)
+	}
 
 	// Initialize ownership engine
 	var ownerResults map[string]*engine.OwnershipResult
@@ -140,6 +147,22 @@ func (e *Engine) evaluateRule(rule *RuleConfig, ownerResults map[string]*engine.
 
 		if err := e.store.UpsertFinding(row); err != nil {
 			e.logger.WithError(err).WithField("finding", row.ID).Warn("Failed to upsert finding")
+			continue
+		}
+
+		// Phase 2: Check if this finding is eligible for plan proposal
+		graceStatus := GraceNone
+		if graceTracking != nil {
+			graceStatus = graceTracking.Status
+		}
+		eligibility := &FindingEligibility{
+			Status:        StatusActive,
+			Actionability: safety.Actionability,
+			GraceStatus:   graceStatus,
+			MaxAction:     rule.MaxAction,
+		}
+		if IsEligibleForProposal(eligibility) {
+			e.proposePlan(row.ID, result.ResourceKey, rule, now)
 		}
 	}
 
@@ -195,6 +218,85 @@ func (e *Engine) markDegraded(rule *RuleConfig, now time.Time) error {
 	return nil
 }
 
+// proposePlan creates a plan for a finding if one doesn't already exist.
+// Tries the highest permitted action: Delete > Neutralize > Annotate.
+// Each higher action has stricter qualification requirements.
+func (e *Engine) proposePlan(findingID, resourceKey string, rule *RuleConfig, now time.Time) {
+	// Check if a plan already exists for this finding
+	existing, err := e.store.GetPlanByFinding(findingID)
+	if err != nil {
+		e.logger.WithError(err).WithField("finding", findingID).Warn("Failed to check existing plan")
+		return
+	}
+	if existing != nil {
+		// Plan already exists (Pending or Approved) — do not create another
+		return
+	}
+
+	// Determine the best action: try Delete > Neutralize > Annotate
+	var plan *ActionPlan
+	rec, ok := e.index.Get(resourceKey)
+	if !ok {
+		e.logger.WithField("resource", resourceKey).Debug("Resource not in index — skipping plan proposal")
+		return
+	}
+
+	kind := rec.Identity.GVK.Kind
+
+	// Try Delete first if permitted (qualification gates will block if unsafe)
+	if actionPermits(rule.MaxAction, ActionDelete) {
+		plan = BuildDeletePlan(findingID, resourceKey, rule, e.index, e.graph, now)
+	}
+
+	// Try Neutralize if Delete not available/qualified
+	if plan == nil && actionPermits(rule.MaxAction, ActionNeutralize) && CanNeutralize(kind) {
+		plan = BuildNeutralizePlan(findingID, resourceKey, rule, e.index, e.graph, now)
+	}
+
+	// Fall back to Annotate
+	if plan == nil {
+		plan = BuildAnnotatePlan(findingID, resourceKey, rule, e.index, now)
+	}
+
+	if plan == nil {
+		e.logger.WithField("resource", resourceKey).Debug("Could not build plan — skipping")
+		return
+	}
+
+	// Persist the plan
+	row := store.PlanRow{
+		ID:              plan.ID,
+		FindingID:       plan.FindingID,
+		Digest:          plan.Digest,
+		Action:          string(plan.Action),
+		ResourceKey:     plan.ResourceKey,
+		ResourceUID:     plan.ResourceUID,
+		AnnotationKey:   plan.Annotation.Key,
+		AnnotationValue: plan.Annotation.Value,
+		Metadata:        "{}",
+		RuleID:          plan.RuleID,
+		RuleName:        plan.RuleName,
+		Status:          string(plan.Status),
+		CreatedAt:       plan.CreatedAt,
+		ExpiresAt:       plan.ExpiresAt,
+	}
+
+	// Serialize neutralize metadata if applicable
+	if plan.Action == ActionNeutralize {
+		row.Metadata = BuildNeutralizeMetadata(plan.Neutralize)
+	}
+
+	if err := e.store.UpsertPlan(row); err != nil {
+		e.logger.WithError(err).WithField("plan", plan.ID).Warn("Failed to persist plan")
+		return
+	}
+
+	// Transition finding to Proposed
+	if err := e.store.UpdateFindingStatus(findingID, string(StatusProposed), now); err != nil {
+		e.logger.WithError(err).WithField("finding", findingID).Warn("Failed to update finding status to Proposed")
+	}
+}
+
 // computeGrace determines the grace tracking state for a finding.
 // Returns nil if the rule has no grace period configured.
 func (e *Engine) computeGrace(rule *RuleConfig, resourceKey string, now time.Time) *GraceTracking {
@@ -235,7 +337,8 @@ func (e *Engine) Rules() []RuleConfig {
 	return sorted
 }
 
-// DefaultRules returns the built-in observe-only rules for Phase 1.
+// DefaultRules returns the built-in rules.
+// Phase 2: disconnected resource rules permit Annotate action.
 func DefaultRules() []RuleConfig {
 	return []RuleConfig{
 		{
@@ -247,7 +350,7 @@ func DefaultRules() []RuleConfig {
 				Classifications: []string{"Unknown"},
 			},
 			GracePeriod: 7 * 24 * time.Hour,
-			MaxAction:   "Report",
+			MaxAction:   "Annotate",
 			Severity:    "Warning",
 		},
 		{
@@ -271,7 +374,7 @@ func DefaultRules() []RuleConfig {
 				Classifications: []string{"Orphaned"},
 			},
 			GracePeriod: 0,
-			MaxAction:   "Report",
+			MaxAction:   "Annotate",
 			Severity:    "Critical",
 		},
 		{
@@ -284,7 +387,7 @@ func DefaultRules() []RuleConfig {
 				ExcludeNamespaces: []string{"kube-system", "kube-public"},
 			},
 			GracePeriod: 3 * 24 * time.Hour,
-			MaxAction:   "Report",
+			MaxAction:   "Annotate",
 			Severity:    "Info",
 		},
 		{
@@ -297,7 +400,7 @@ func DefaultRules() []RuleConfig {
 				ExcludeNamespaces: []string{"kube-system", "kube-public"},
 			},
 			GracePeriod: 3 * 24 * time.Hour,
-			MaxAction:   "Report",
+			MaxAction:   "Annotate",
 			Severity:    "Info",
 		},
 	}

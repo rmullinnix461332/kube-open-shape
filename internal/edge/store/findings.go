@@ -204,3 +204,50 @@ func scanFindings(rows *sql.Rows) ([]FindingRow, error) {
 	}
 	return findings, nil
 }
+
+// UpdateFindingStatus transitions a finding's lifecycle status.
+func (s *Store) UpdateFindingStatus(id, newStatus string, at time.Time) error {
+	_, err := s.db.Exec(
+		"UPDATE findings SET status = ?, last_seen = ? WHERE id = ?",
+		newStatus, at, id)
+	return err
+}
+
+// SuppressFinding marks a finding as suppressed with an expiry.
+func (s *Store) SuppressFinding(id, reason string, suppressedAt, expiresAt time.Time) error {
+	_, err := s.db.Exec(
+		"UPDATE findings SET status = 'Suppressed', reason = ?, last_seen = ? WHERE id = ?",
+		reason, suppressedAt, id)
+	return err
+}
+
+// GetFinding retrieves a single finding by ID.
+func (s *Store) GetFinding(id string) (*FindingRow, error) {
+	row := s.db.QueryRow(
+		"SELECT id, rule_id, rule_name, resource_key, severity, message, status, actionability, reason, first_seen, last_seen, resolved_at, grace_period, grace_expiry FROM findings WHERE id = ?", id)
+
+	var f FindingRow
+	var resolvedAt sql.NullTime
+	var graceExpiry sql.NullTime
+	var gracePeriod sql.NullString
+
+	err := row.Scan(
+		&f.ID, &f.RuleID, &f.RuleName, &f.ResourceKey,
+		&f.Severity, &f.Message, &f.Status, &f.Actionability, &f.Reason,
+		&f.FirstSeen, &f.LastSeen, &resolvedAt,
+		&gracePeriod, &graceExpiry,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if resolvedAt.Valid {
+		f.ResolvedAt = &resolvedAt.Time
+	}
+	if gracePeriod.Valid {
+		f.GracePeriod = gracePeriod.String
+	}
+	if graceExpiry.Valid {
+		f.GraceExpiry = &graceExpiry.Time
+	}
+	return &f, nil
+}

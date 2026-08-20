@@ -129,6 +129,10 @@ func openStore() (*store.Store, error) {
 		st.Close()
 		return nil, fmt.Errorf("migrate findings: %w", err)
 	}
+	if err := st.MigratePlans(); err != nil {
+		st.Close()
+		return nil, fmt.Errorf("migrate plans: %w", err)
+	}
 	return st, nil
 }
 
