@@ -1,0 +1,9 @@
+# Profile selects which resources to render.
+# Options: simple, rbac, stateful
+profile: simple
+
+# Common labels applied to all resources
+appName: kos-fixture
+image:
+  repository: nginx
+  tag: "1.25"

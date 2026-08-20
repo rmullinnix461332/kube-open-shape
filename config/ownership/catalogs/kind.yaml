@@ -1,0 +1,69 @@
+catalogs:
+  kindDistributionResources:
+    type: exactSet
+    version: "kind-0.24"
+    values:
+      - kindnet
+      - kindnetd
+      - local-path-provisioner-service-account
+
+  kindDistributionConfigMaps:
+    type: exactSet
+    values:
+      - local-path-config
+      - kindnet-cfg
+
+  kindDistributionRBAC:
+    type: exactSet
+    values:
+      - kindnet
+      - local-path-provisioner-role
+      - local-path-provisioner-bind
+      - system:coredns
+
+  kindDistributionNamespaces:
+    type: exactSet
+    values:
+      - local-path-storage
+
+  kindDistributionWorkloads:
+    type: exactSet
+    values:
+      - local-path-provisioner
+
+  kubeadmResources:
+    type: exactSet
+    values:
+      - kubeadm-config
+      - kubelet-config
+      - kube-proxy
+      - coredns
+      - cluster-info
+
+  kubeadmRBAC:
+    type: prefix
+    value: "kubeadm:"
+
+  kubernetesBootstrapNamespaces:
+    type: exactSet
+    values:
+      - default
+      - kube-node-lease
+      - kube-public
+      - kube-system
+
+  kubeApiserverConfigMaps:
+    type: exactSet
+    values:
+      - extension-apiserver-authentication
+      - kube-apiserver-legacy-service-account-token-tracking
+
+  kubeApiserverServices:
+    type: exactSet
+    values:
+      - kubernetes
+
+  clusterBootstrapServices:
+    type: exactSet
+    values:
+      - kube-dns

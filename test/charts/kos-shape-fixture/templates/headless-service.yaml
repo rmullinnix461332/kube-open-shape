@@ -1,0 +1,16 @@
+{{- if eq .Values.profile "stateful" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-headless
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "kos-fixture.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+{{- end }}

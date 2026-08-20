@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kos-shape-fixture
+description: Test fixture chart for KOS shape grouping validation
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

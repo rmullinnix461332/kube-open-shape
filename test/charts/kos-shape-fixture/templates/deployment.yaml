@@ -1,0 +1,29 @@
+{{- if or (eq .Values.profile "simple") (eq .Values.profile "rbac") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kos-fixture.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kos-fixture.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if eq .Values.profile "rbac" }}
+      serviceAccountName: {{ .Release.Name }}
+      {{- end }}
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-config
+{{- end }}

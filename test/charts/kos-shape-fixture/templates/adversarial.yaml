@@ -1,0 +1,104 @@
+{{- if eq .Values.profile "adversarial-disconnected-service" }}
+# Adversarial fixture: all required kinds present but Service does NOT select the Deployment.
+# Expected: REJECTED — service --SelectsWorkload--> root cannot be satisfied.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kos-fixture.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kos-fixture.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+data:
+  app.conf: |
+    profile=adversarial-disconnected-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-decoy
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+spec:
+  # Selector deliberately does NOT match the Deployment's pod labels
+  selector:
+    app.kubernetes.io/name: completely-different-app
+    app.kubernetes.io/instance: nonexistent
+  ports:
+    - port: 80
+      targetPort: 9999
+      protocol: TCP
+{{- end }}
+{{- if eq .Values.profile "adversarial-unmounted-config" }}
+# Adversarial fixture: Service selects Deployment correctly, but ConfigMap is NOT mounted.
+# Expected: REJECTED — root --Mounts--> configMap cannot be satisfied.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kos-fixture.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kos-fixture.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 8080
+          # No envFrom, no volumes — ConfigMap is not referenced
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-unmounted
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+data:
+  unused.conf: |
+    this config is deliberately not referenced by the Deployment
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "kos-fixture.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+{{- end }}

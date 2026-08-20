@@ -1,0 +1,12 @@
+{{- if not (hasPrefix "adversarial" .Values.profile) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    {{- include "kos-fixture.labels" . | nindent 4 }}
+data:
+  app.conf: |
+    environment={{ .Release.Namespace }}
+    profile={{ .Values.profile }}
+{{- end }}

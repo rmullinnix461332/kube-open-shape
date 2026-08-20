@@ -1,0 +1,256 @@
+decisions:
+  # --- Kind Distribution ---
+
+  - name: kind-distribution-sa
+    priority: 750
+    when:
+      all:
+        - field: resource.kind
+          equals: ServiceAccount
+        - field: resource.namespace
+          equals: kube-system
+        - field: resource.name
+          inCatalog: kindDistributionResources
+    result:
+      authority:
+        type: ClusterDistribution
+        name: kind
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kind-distribution-configmap
+    priority: 750
+    when:
+      all:
+        - field: resource.kind
+          equals: ConfigMap
+        - field: resource.namespace
+          equals: kube-system
+        - field: resource.name
+          inCatalog: kindDistributionConfigMaps
+    result:
+      authority:
+        type: ClusterDistribution
+        name: kind
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kind-distribution-configmap-localpath
+    priority: 750
+    when:
+      all:
+        - field: resource.kind
+          equals: ConfigMap
+        - field: resource.namespace
+          equals: local-path-storage
+        - field: resource.name
+          inCatalog: kindDistributionConfigMaps
+    result:
+      authority:
+        type: ClusterDistribution
+        name: kind
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kind-distribution-local-path-sa
+    priority: 750
+    when:
+      all:
+        - field: resource.kind
+          equals: ServiceAccount
+        - field: resource.namespace
+          equals: local-path-storage
+        - field: resource.name
+          inCatalog: kindDistributionResources
+    result:
+      authority:
+        type: ClusterDistribution
+        name: kind
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kind-distribution-rbac
+    priority: 720
+    when:
+      all:
+        - field: resource.name
+          inCatalog: kindDistributionRBAC
+    result:
+      authority:
+        type: ClusterDistribution
+        name: kind
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kind-distribution-namespace
+    priority: 730
+    when:
+      all:
+        - field: resource.kind
+          equals: Namespace
+        - field: resource.name
+          inCatalog: kindDistributionNamespaces
+    result:
+      authority:
+        type: ClusterDistribution
+        name: kind
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kind-distribution-workload
+    priority: 750
+    when:
+      all:
+        - field: resource.kind
+          equals: Deployment
+        - field: resource.namespace
+          equals: local-path-storage
+        - field: resource.name
+          inCatalog: kindDistributionWorkloads
+    result:
+      authority:
+        type: ClusterDistribution
+        name: kind
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  # --- Kubeadm / Kubernetes Bootstrap ---
+
+  - name: kubeadm-bootstrap-resource
+    priority: 760
+    when:
+      all:
+        - field: resource.namespace
+          equals: kube-system
+        - field: resource.name
+          inCatalog: kubeadmResources
+    result:
+      authority:
+        type: KubernetesBootstrap
+        name: kubeadm
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kubeadm-rbac
+    priority: 740
+    when:
+      all:
+        - field: resource.name
+          matchesCatalog: kubeadmRBAC
+    result:
+      authority:
+        type: KubernetesBootstrap
+        name: kubeadm
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kubernetes-bootstrap-namespace
+    priority: 780
+    when:
+      all:
+        - field: resource.kind
+          equals: Namespace
+        - field: resource.name
+          inCatalog: kubernetesBootstrapNamespaces
+    result:
+      authority:
+        type: KubernetesBootstrap
+        name: cluster-bootstrap
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+
+  - name: kube-apiserver-configmap
+    priority: 770
+    when:
+      all:
+        - field: resource.kind
+          equals: ConfigMap
+        - field: resource.namespace
+          equals: kube-system
+        - field: resource.name
+          inCatalog: kubeApiserverConfigMaps
+    result:
+      authority:
+        type: KubernetesController
+        name: kube-apiserver
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kube-apiserver-service
+    priority: 790
+    when:
+      all:
+        - field: resource.kind
+          equals: Service
+        - field: resource.namespace
+          equals: default
+        - field: resource.name
+          inCatalog: kubeApiserverServices
+    result:
+      authority:
+        type: KubernetesController
+        name: kube-apiserver
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+
+  - name: cluster-bootstrap-service
+    priority: 760
+    when:
+      all:
+        - field: resource.kind
+          equals: Service
+        - field: resource.namespace
+          equals: kube-system
+        - field: resource.name
+          inCatalog: clusterBootstrapServices
+    result:
+      authority:
+        type: KubernetesBootstrap
+        name: cluster-bootstrap
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: kubeadm-cluster-info
+    priority: 760
+    when:
+      all:
+        - field: resource.kind
+          equals: ConfigMap
+        - field: resource.namespace
+          equals: kube-public
+        - field: resource.name
+          equals: cluster-info
+    result:
+      authority:
+        type: KubernetesBootstrap
+        name: kubeadm
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct

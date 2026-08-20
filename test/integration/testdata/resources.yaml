@@ -1,0 +1,92 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-app
+  namespace: kos-integration
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+  namespace: kos-integration
+  labels:
+    app.kubernetes.io/name: test-app
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/release-name: test-app
+data:
+  key: value
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: test-secret
+  namespace: kos-integration
+  labels:
+    app.kubernetes.io/name: test-app
+type: Opaque
+data:
+  password: dGVzdA==
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-app
+  namespace: kos-integration
+  labels:
+    app.kubernetes.io/name: test-app
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/release-name: test-app
+  annotations:
+    argocd.argoproj.io/tracking-id: "test-app:apps/Deployment:kos-integration/test-app"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-app
+  template:
+    metadata:
+      labels:
+        app: test-app
+    spec:
+      serviceAccountName: test-app
+      containers:
+        - name: app
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: test-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-app
+  namespace: kos-integration
+  labels:
+    app.kubernetes.io/name: test-app
+    helm.sh/release-name: test-app
+spec:
+  selector:
+    app: test-app
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: test-cleanup
+  namespace: kos-integration
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: cleanup
+              image: busybox:latest
+              command: ["echo", "cleanup"]

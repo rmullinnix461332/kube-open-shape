@@ -1,0 +1,263 @@
+decisions:
+  # --- Platform / KubernetesController ---
+
+  - name: platform-kube-root-ca
+    priority: 1200
+    when:
+      all:
+        - field: resource.kind
+          equals: ConfigMap
+        - field: resource.name
+          equals: kube-root-ca.crt
+    result:
+      authority:
+        type: KubernetesController
+        name: root-ca-cert-publisher
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+
+  - name: platform-default-sa
+    priority: 1200
+    when:
+      all:
+        - field: resource.kind
+          equals: ServiceAccount
+        - field: resource.name
+          equals: default
+    result:
+      authority:
+        type: KubernetesController
+        name: service-account-controller
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+
+  # --- Helm ---
+
+  - name: helm-manifest-member
+    priority: 1050
+    when:
+      all:
+        - field: release.manifestMember
+          exists: true
+    result:
+      authority:
+        type: Helm
+        nameFrom: release.name
+        namespaceFrom: release.namespace
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+
+  - name: helm-release-record
+    priority: 1100
+    when:
+      all:
+        - field: resource.kind
+          equals: Secret
+        - field: resource.name
+          matchesCatalog: helmReleaseSecretPattern
+    result:
+      authority:
+        type: Helm
+        nameFrom: release.name
+        namespaceFrom: release.namespace
+      claimLayer: AuthorityRecord
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+      resourceRole: AuthorityRecord
+
+  - name: helm-release-annotation
+    priority: 1000
+    when:
+      all:
+        - field: metadata.annotation["meta.helm.sh/release-name"]
+          exists: true
+    result:
+      authority:
+        type: Helm
+        nameFrom: metadata.annotation["meta.helm.sh/release-name"]
+        namespaceFrom: metadata.annotation["meta.helm.sh/release-namespace"]
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+
+  - name: helm-release-name-label
+    priority: 950
+    when:
+      all:
+        - field: metadata.label["helm.sh/release-name"]
+          exists: true
+    result:
+      authority:
+        type: Helm
+        nameFrom: metadata.label["helm.sh/release-name"]
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+
+  - name: helm-chart-label-corroborating
+    priority: 400
+    when:
+      all:
+        - field: metadata.label["helm.sh/chart"]
+          exists: true
+    result:
+      authority:
+        type: Helm
+        nameFrom: metadata.label["app.kubernetes.io/instance"]
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  - name: helm-managed-by-instance
+    priority: 500
+    when:
+      all:
+        - field: metadata.label["app.kubernetes.io/managed-by"]
+          equals: Helm
+        - field: metadata.label["app.kubernetes.io/instance"]
+          exists: true
+    result:
+      authority:
+        type: Helm
+        nameFrom: metadata.label["app.kubernetes.io/instance"]
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  # --- ArgoCD ---
+
+  - name: argocd-tracking-annotation
+    priority: 900
+    when:
+      all:
+        - field: metadata.annotation["argocd.argoproj.io/tracking-id"]
+          exists: true
+    result:
+      authority:
+        type: ArgoCD
+        nameFrom: argocd.trackingClaim.appName
+        namespaceFrom: argocd.trackingClaim.appNS
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Detected
+      attribution: Direct
+
+  # --- Kubernetes Bootstrap ---
+
+  - name: kubernetes-rbac-default
+    priority: 800
+    when:
+      all:
+        - field: metadata.label["kubernetes.io/bootstrapping"]
+          equals: rbac-defaults
+    result:
+      authority:
+        type: KubernetesBootstrap
+        name: rbac-defaults
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Authoritative
+      authorityState: Verified
+      attribution: Direct
+
+  - name: kubernetes-controller-sa
+    priority: 700
+    when:
+      all:
+        - field: resource.kind
+          equals: ServiceAccount
+        - field: resource.namespace
+          equals: kube-system
+        - field: resource.name
+          inCatalog: kubernetesControllerServiceAccounts
+    result:
+      authority:
+        type: KubernetesController
+        name: kube-controller-manager
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+
+  # --- Lease / Runtime Controller Artifacts ---
+
+  - name: lease-kubernetes-controller
+    priority: 610
+    when:
+      all:
+        - field: lease.resolvedController
+          inCatalog: kubernetesControlPlaneLeases
+    result:
+      authority:
+        type: KubernetesController
+        nameFrom: lease.resolvedController
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+      resourceRole: RuntimeArtifact
+
+  - name: lease-node-controller
+    priority: 610
+    when:
+      all:
+        - field: lease.resolvedController
+          exists: true
+        - field: resource.namespace
+          equals: kube-node-lease
+    result:
+      authority:
+        type: KubernetesController
+        nameFrom: lease.resolvedController
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+      resourceRole: RuntimeArtifact
+
+  - name: lease-apiserver
+    priority: 610
+    when:
+      all:
+        - field: lease.resolvedController
+          equals: kube-apiserver
+    result:
+      authority:
+        type: KubernetesController
+        name: kube-apiserver
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+      resourceRole: RuntimeArtifact
+
+  - name: lease-application-controller
+    priority: 600
+    when:
+      all:
+        - field: lease.resolvedController
+          exists: true
+    result:
+      authority:
+        type: Controller
+        nameFrom: lease.resolvedController
+      claimLayer: LifecycleAuthority
+      evidenceStrength: Corroborating
+      authorityState: Detected
+      attribution: Direct
+      resourceRole: RuntimeArtifact
+
+  # --- PVC from StatefulSet ---
+  # PVC attribution is handled by engine propagation (propagatePVCAuthority),
+  # not by a rule. The PVCTemplateExtractor emits pvc.statefulSetOwner facts
+  # which the engine uses to inherit the StatefulSet's lifecycle authority.
