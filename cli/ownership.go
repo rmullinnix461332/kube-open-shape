@@ -136,7 +136,8 @@ func printEngineAuthoritySummary(results map[string]*engine.OwnershipResult) err
 		}
 	}
 	w.Flush()
-	fmt.Fprintf(os.Stderr, "\n%d resources, %d authorities\n", total, len(byAuth))
+	knownAuthorities := len(byAuth)
+	fmt.Fprintf(os.Stderr, "\n%d resources, %d known authorities\n", total, knownAuthorities)
 	return nil
 }
 

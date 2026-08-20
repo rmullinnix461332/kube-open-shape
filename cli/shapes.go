@@ -128,8 +128,12 @@ func runShapes(cmd *cobra.Command, args []string) error {
 	for _, s := range summaries {
 		totalInstances += s.Instances
 	}
-	fmt.Fprintf(os.Stderr, "%d role classifiers, %d named shapes, %d total instances\n",
-		len(roleClassifiers), len(namedShapes), totalInstances)
+	namedLabel := "named shapes"
+	if len(namedShapes) == 1 {
+		namedLabel = "named shape"
+	}
+	fmt.Fprintf(os.Stderr, "%d role classifiers, %d %s, %d total instances\n",
+		len(roleClassifiers), len(namedShapes), namedLabel, totalInstances)
 	return nil
 }
 

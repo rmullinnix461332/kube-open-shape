@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/graph"
+	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/ownership/engine/setup"
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/shape"
 	"github.com/spf13/cobra"
@@ -37,22 +38,22 @@ func runReport(cmd *cobra.Command, args []string) error {
 
 	// Count by authority status
 	var managedCount, noAuthorityCount, contendedCount int
-	authorities := make(map[string]int) // authority name → resource count
+	authorities := make(map[string]int)
 	for _, result := range ownerResults {
-		switch {
-		case result.NoAuthority:
+		if result.NoAuthority {
 			noAuthorityCount++
-		case result.Contended:
+			continue
+		}
+		if result.Contended {
 			contendedCount++
-		default:
+		} else {
 			managedCount++
-			if result.LifecycleAuthority != nil {
-				authorities[result.LifecycleAuthority.Authority.Name]++
-			} else if result.AuthorityRecord != nil {
-				authorities[result.AuthorityRecord.Authority.Name]++
-			} else if result.RuntimeController != nil {
-				authorities[result.RuntimeController.Authority.Name]++
-			}
+		}
+		// Count the primary authority regardless of managed/contended
+		auth := reportPrimaryAuthority(result)
+		if auth != nil && auth.ResourceRole != "AuthorityRecord" {
+			key := auth.Authority.Type + "/" + auth.Authority.Name
+			authorities[key]++
 		}
 	}
 
@@ -144,4 +145,20 @@ func modelName(groups []*shape.CandidateShapeGroup) string {
 		return groups[0].ModelRevision.RelationshipSet
 	}
 	return "none"
+}
+
+func reportPrimaryAuthority(r *engine.OwnershipResult) *engine.LayerResult {
+	if r.LifecycleAuthority != nil {
+		return r.LifecycleAuthority
+	}
+	if r.HigherLevelReconciler != nil {
+		return r.HigherLevelReconciler
+	}
+	if r.AuthorityRecord != nil {
+		return r.AuthorityRecord
+	}
+	if r.RuntimeController != nil {
+		return r.RuntimeController
+	}
+	return nil
 }

@@ -52,7 +52,7 @@ Ownership:
   Managed               471  (92.5%)
   No Known Authority     14  (2.8%)
   Contended              24  (4.7%)
-  Authorities            25
+  Authorities            26
 Relationships:
   Edges: 297
   Nodes: 357
@@ -159,12 +159,12 @@ kube-controller-manager     KubernetesController  38         38      0
 kubeadm                     KubernetesBootstrap   26         25      1
 ... 20 additional authorities ...
 (no known authority)        —                     14         —       —
-509 resources, 26 authorities
+509 resources, 26 known authorities
 ```
 
 #### Observation
 
-The cluster has 26 distinct lifecycle authorities across 5 types: KubernetesBootstrap (platform RBAC defaults, kubeadm), KubernetesController (kube-controller-manager, service-account-controller), ClusterDistribution (Kind), Helm (13 releases), and Controller (cert-manager-controller, ingress-nginx). The `Inherited` column shows framework descendants — ReplicaSets owned by Deployments inherit their parent's Helm authority. 14 resources have no known authority.
+The cluster has 26 known lifecycle authorities across 5 types: KubernetesBootstrap (platform RBAC defaults, kubeadm), KubernetesController (kube-controller-manager, service-account-controller), ClusterDistribution (Kind), Helm (13 releases), and Controller (cert-manager-controller, ingress-nginx). The `Inherited` column shows framework descendants — ReplicaSets owned by Deployments inherit their parent's Helm authority. 14 resources have no known authority.
 
 ### 1.5 Filter Ownership to One Authority
 
@@ -215,7 +215,7 @@ Relationships:
 
 #### Observation
 
-For one resource, KOS shows: identity (UID, creation time), ownership (Helm/argocd with Authoritative confidence), group membership (argocd), shape classification (application), and structural relationships (6 outgoing dependencies, 1 incoming consumer). This ConfigMap is reached from the Deployment via Mounts relationships — graph knowledge that is not visible from `kubectl get` alone.
+For one resource, KOS shows: identity (UID, creation time), ownership (Helm/argocd with Authoritative confidence), group membership (argocd), shape classification (application), and structural relationships (6 outgoing dependencies, 1 incoming consumer). The Deployment reaches three ConfigMaps through Mounts relationships and one Secret through References — graph knowledge that is not visible from `kubectl get` alone.
 
 ### 1.7 Identify Resources Without Known Authority
 
@@ -234,7 +234,7 @@ Secret/ingress-system/ingress-nginx-admission
 
 #### Observation
 
-"No known authority" means KOS found insufficient observed attribution — not that these resources are abandoned. The 11 namespaces were likely created by Terraform, a CI pipeline, or manual `kubectl create ns` — none of which leave Helm-style metadata. The 3 Secrets are controller-generated (cert-manager webhook CA, ingress admission webhook, redis password) but lack traceable provenance metadata. Absence of authority alone does not authorize Janitor deletion — it surfaces operational ambiguity for the operator to resolve.
+"No known authority" means KOS found insufficient observed attribution — not that these resources are abandoned. The 11 namespaces may have been created by Terraform, a CI pipeline, `helm --create-namespace`, or manual `kubectl create ns` — none of which leave Helm-style ownership metadata. The three Secrets were generated during installation or runtime but lack sufficient provenance metadata. Absence of authority alone does not authorize Janitor deletion — it surfaces operational ambiguity for the operator to resolve.
 
 ### Organization Axis Summary
 
@@ -351,7 +351,12 @@ unmanaged-resources      Namespace/argocd                                  Warni
 unmanaged-resources      Namespace/cert-manager                            Warning   Actionable     0m    6d left
 ... 12 additional unmanaged-resources findings ...
 disconnected-configmaps  ConfigMap/argocd/argocd-notifications-cm          Info      Actionable     0m    2d left
-... 3 additional disconnected findings ...
+disconnected-configmaps  ConfigMap/argocd/argocd-rbac-cm                   Info      Actionable     0m    2d left
+disconnected-configmaps  ConfigMap/fixture-adv-unmounted/...unmounted      Info      Actionable     0m    2d left
+disconnected-configmaps  ConfigMap/ingress-system/ingress-nginx-controller Info      Actionable     0m    2d left
+disconnected-secrets     Secret/argocd/argocd-notifications-secret         Info      Actionable     0m    2d left
+disconnected-secrets     Secret/argocd/argocd-secret                       Info      Actionable     0m    2d left
+disconnected-secrets     Secret/cert-manager/cert-manager-webhook-ca       Info      Actionable     0m    2d left
 orphaned-resources       ConfigMap/fixture-a/fixture-simple-a-config       Critical  Actionable     0m    —
 ... 23 additional orphaned-resources findings ...
 45 active findings
@@ -398,7 +403,7 @@ Role Classifications:
 Named Shapes:
   DEFINITION                VARIANT       ROLE         INSTANCES  TRAITS
   kos-stateful-application  7c10807e50c4  application  1
-2 role classifiers, 1 named shapes, 27 total instances
+2 role classifiers, 1 named shape, 27 total instances
 ```
 
 #### Observation
@@ -407,7 +412,7 @@ The cluster has 2 broad role classifiers (application for Deployments/StatefulSe
 
 ### 3.2 Describe the Named Shape Definition
 
-The `kos-stateful-application` shape is defined in code as:
+The embedded default `kos-stateful-application` ShapeDefinition is:
 
 ```yaml
 # Embedded ShapeDefinition (kos-stateful-application)
@@ -566,6 +571,8 @@ Accepted roles and shapes (2 classifiers, 1 named shape)
 
 The Graph axis exposes how resources are connected.
 
+> This cluster does not contain Ingress resources pointing to application Services. The examples below demonstrate dependency traversal and blast radius but not external exposure paths. An externally-exposed fixture would be needed to demonstrate Ingress → Service → Workload traversal.
+
 ### 4.1 Summarize the Graph
 
 From the report:
@@ -591,7 +598,7 @@ Relationships for: Deployment/argocd/argocd-server
 
 #### Observation
 
-All structural relationships are sourced from explicit Kubernetes spec fields — no inferred or naming-convention edges. The 3 mounted ConfigMaps and 1 referenced Secret represent the workload's configuration dependencies. The ReplicaSet is a framework descendant (Owns via ownerReference — Kubernetes will garbage-collect it if the Deployment is deleted).
+Relationships are derived from explicit spec fields, owner references, and deterministic selector matching. None of the relationships shown rely on resource-name similarity. The 3 mounted ConfigMaps and 1 referenced Secret represent the workload's configuration dependencies. The ReplicaSet is a framework descendant (Owns via ownerReference — Kubernetes will garbage-collect it if the Deployment is deleted).
 
 ### 4.3 Inspect a Shared Configuration Resource (Blast Radius)
 
@@ -610,7 +617,7 @@ Relationships:
 
 #### Observation
 
-This ConfigMap has 3 consumers. Its incoming edges identify three Deployments that mount it. This is the blast radius of changing or removing this ConfigMap — three workloads would be affected. Graph knowledge proves it is actively referenced and cannot be evaluated by age or name alone. Any Janitor action would fail the "no consumers outside action closure" qualification check.
+This ConfigMap has 3 consumers. Its incoming edges identify three Deployments that mount it. This is the blast radius of changing or removing this ConfigMap — three workloads would be affected. Graph knowledge proves it is actively referenced and cannot be evaluated by age or name alone. Any destructive Janitor action against the ConfigMap would fail the "no consumers outside action closure" qualification check. An annotation action may still be valid.
 
 ### 4.4 Traverse a Dependency Path
 
@@ -647,15 +654,24 @@ This is the downstream dependency neighborhood of the Service — all resources 
 From the argocd-server relationships, the graph contains the information needed to derive teardown ordering:
 
 ```text
-Illustrated ordering (consumers before providers):
-  Service/argocd/argocd-server         (references Deployment via SelectsWorkload)
-  Deployment/argocd/argocd-server      (references ConfigMaps via Mounts, Secret via References)
-  ReplicaSet/argocd/argocd-server-*    (framework descendant, cascading via Owns)
-  ConfigMap/argocd/argocd-cmd-params-cm  (provider)
-  ServiceAccount/argocd/argocd-server    (provider)
+Exposure:
+  Service may be removed first when disabling access
+
+Workload root:
+  Deployment is the primary deletion target
+
+Framework descendants:
+  ReplicaSet is expected to cascade through ownerReferences
+
+Supporting providers:
+  ConfigMaps and ServiceAccount are considered only after all consumers
+  have been removed or included in the action closure
+
+Shared dependencies:
+  Retain when consumers exist outside the action closure
 ```
 
-> This is an illustration of ordering information already present in the graph, not a complete or executable Janitor plan. A complete execution plan would also include RBAC bindings, shared ConfigMaps used by other workloads, and the qualification checks that determine whether deletion is safe.
+> This is an illustration of ordering information already present in the graph, not a complete or executable Janitor plan. A Service selecting a Deployment does not itself require that the Deployment be deleted. Likewise, the ReplicaSet is normally an expected cascade, not a separate explicit execution step.
 
 The general principle for teardown ordering:
 
@@ -665,7 +681,7 @@ RoleBinding before Role
 Custom Resources before CRD
 ```
 
-Note: removing a Service does not require deleting its selected Deployment. Relationship semantics define which edges contribute hard ordering constraints to a teardown DAG and which are informational.
+Note: removing a Service does not require deleting its selected Deployment. Each relationship type defines its own teardown semantics — not all edges contribute hard ordering constraints to an execution DAG.
 
 ### Graph Axis Summary
 
@@ -702,13 +718,18 @@ Graph        — How is it connected, exposed, and affected by change?
 A typical investigation moves naturally between them:
 
 ```text
-Application group (argocd: 64 resources)
-  → lifecycle authority (Helm/argocd)
-  → release (chart:argo-cd@10.4.0, revision 1)
-  → structural composition (7 workloads, 1 named shape match)
-  → individual resource (ConfigMap argocd-ssh-known-hosts-cm: 3 consumers)
-  → dependency graph (Service → Deployment → ConfigMaps → Secret)
-  → findings and actionability (14 no-authority, 24 contended, 7 disconnected)
+Argo CD:
+  Application group (64 resources)
+    → Helm authority (chart:argo-cd@10.4.0, revision 1)
+    → component hierarchy (7 workloads, 8 components)
+    → individual resource (ConfigMap argocd-ssh-known-hosts-cm: 3 consumers)
+    → dependency graph (Service → Deployment → ConfigMaps → Secret)
+
+Stateful fixture:
+  Application group (7 resources)
+    → Stateful Application shape (bound instance)
+    → headless Service + PVC + ConfigMap + Secret
+    → findings (orphaned — contended authority)
 ```
 
 KOS does not replace `kubectl`, Helm, or Argo CD. It supplies the navigable knowledge layer that connects the information those tools expose individually.
