@@ -63,7 +63,7 @@ Candidate Shape Groups (model: builtin:structural-composition-v1):
     ... 15 additional candidates ...
 ```
 
-> The Relationships section reports structural edges only (UsesServiceAccount, SelectsWorkload, Mounts, References, Owns, etc.). The full knowledge graph export (`kos graph export`) includes contextual edges (MemberOf, MemberOfRelease, BelongsToRelease, ClassifiedAs) for a total of 734 edges across 535 nodes.
+> The Relationships section reports structural and provenance edges (297 = 279 structural + 18 BelongsToRelease). The full knowledge graph export (`kos graph export`) additionally includes grouping edges (MemberOf, MemberOfRelease) and classification edges (ClassifiedAs) for a total of 734 edges across 535 nodes.
 
 ---
 
@@ -215,7 +215,7 @@ Relationships:
 
 #### Observation
 
-For one resource, KOS shows: identity (UID, creation time), ownership (Helm/argocd with Authoritative confidence), group membership (argocd), shape classification (application), and structural relationships (6 outgoing dependencies, 1 incoming consumer). The Deployment reaches three ConfigMaps through Mounts relationships and one Secret through References — graph knowledge that is not visible from `kubectl get` alone.
+For one resource, KOS shows: identity (UID, creation time), ownership (Helm/argocd with Authoritative confidence), group membership (argocd), role classification (application), and structural relationships (6 outgoing dependencies, 1 incoming consumer). The Deployment reaches three ConfigMaps through Mounts relationships and one Secret through References — graph knowledge that is not visible from `kubectl get` alone.
 
 ### 1.7 Identify Resources Without Known Authority
 
@@ -286,7 +286,7 @@ node-exporter     observability     Helm     1         deployed  chart:prometheu
 
 #### Observation
 
-Wide output adds source chart and version and managed-resource count. The MANAGED column (61 for argocd) may differ slightly from the group MEMBERS (64) because group membership includes framework descendants (ReplicaSets) and shared resources that are counted differently from the release manifest inventory.
+Wide output adds source chart and version and managed-resource count. The MANAGED column (61 for argocd) represents resources listed in the Helm release manifest. This differs from the ownership total (64) and group membership (64) because those views include inherited framework descendants and use broader inclusion criteria. See section 2.4 for the full reconciliation.
 
 ### 2.3 Describe a Helm Release
 
@@ -337,12 +337,24 @@ Components:
 
 #### Observation
 
-- **Release** answers: how the software was deployed (Helm chart, revision, manifest resources)
-- **Group** answers: what logically belongs together (including controller-generated descendants)
+Each view applies different inclusion semantics to the same underlying resources:
 
-The argocd release manages 61 resources directly. The argocd group contains 64 members because group membership also includes 6 ReplicaSets (framework descendants created by Kubernetes controllers) and excludes the authority record (Helm release Secret) from the member count. Different questions produce different totals — both are correct.
+| View | Count | Inclusion semantics |
+|------|-------|---------------------|
+| Helm release inventory | 61 | Resources listed in the release manifest |
+| Ownership direct | 58 | Resources where the engine resolved `Helm/argocd` as lifecycle authority (excludes 3 resources with corroborating-only evidence that resolved to a different primary authority) |
+| Ownership inherited | 6 | ReplicaSets attributed through ownerReference chain |
+| Ownership total | 64 | Direct (58) + inherited (6) = 64 |
+| Application group | 64 | Logical group members (corroborated by label, release, and part-of evidence) |
+| Authority record | 1 | Helm release Secret — establishes the authority, excluded from managed-resource counts |
 
-### 2.5 Janitor Findings and Actionability
+The 61-to-58 difference: three resources in the Helm manifest have label metadata that causes the ownership engine to attribute them through a corroborating path rather than the authoritative Helm path (they appear in `kos ownership argocd` with `Corroborating` evidence rather than `Authoritative`). The group uses broader membership criteria (labels + release association) and arrives at 64 by including the 6 inherited ReplicaSets.
+
+KOS does not currently expose a single reconciliation command. The semantic difference between release inventory, ownership attribution, and group membership is intentional — they answer different questions about the same resources.
+
+### 2.5 Cross-Axis: Deployment Authority and Janitor Actionability
+
+> Findings bridge Organization, Deployment, and Graph axes. They are included here because deployment authority (or its absence) is what produces most findings. Current Janitor execution is observe-only — rule action caps describe future permitted behavior; no cluster mutation is currently executed.
 
 ```console
 $ kos findings
@@ -497,7 +509,7 @@ Instances:
 
 #### Observation
 
-This candidate represents a pattern: a Deployment that References a ConfigMap and is exposed via a Service (SelectsWorkload). `Partial` is the candidate engine's evidence-coverage assessment. It indicates that the observed defining relationships may not fully distinguish this candidate from other structures. It does not imply that every supported relationship type should be present — a simple web application does not need RBAC, storage, or every relationship the model supports.
+This candidate represents a pattern: a Deployment that References a ConfigMap and is selected by a Service (SelectsWorkload). `Partial` is the candidate engine's evidence-coverage assessment. It indicates that the observed defining relationships may not fully distinguish this candidate from other structures. It does not imply that every supported relationship type should be present — a simple web application does not need RBAC, storage, or every relationship the model supports.
 
 ### 3.5 Generate a Draft ShapeDefinition
 
@@ -575,12 +587,34 @@ The Graph axis exposes how resources are connected.
 
 ### 4.1 Summarize the Graph
 
-From the report:
-- **Structural edges**: 297 (UsesServiceAccount, SelectsWorkload, Mounts, References, Owns, BindsSubject, GrantsRole, ClaimsStorage, UsesHeadlessService)
-- **All edges** (including contextual): 734 (adds MemberOfRelease: 217, MemberOf: 193, BelongsToRelease: 18, ClassifiedAs: 27)
-- **Nodes**: 357 structural / 535 total
+```console
+$ kos graph export | # edge type summary
+Structural:     279  (Owns, UsesServiceAccount, SelectsWorkload, BindsSubject, GrantsRole, Mounts, References, ClaimsStorage, UsesHeadlessService)
+Provenance:      18  (BelongsToRelease)
+Grouping:       410  (MemberOf: 193, MemberOfRelease: 217)
+Classification:  27  (ClassifiedAs)
+Total:          734 edges, 535 nodes
+```
+
+The `kos relationships` command (and `kos report`) shows 297 edges across 357 nodes. This includes the structural (279) and provenance (18) categories — the edges produced by `graph.Build`. The full knowledge graph export adds grouping and classification edges for a total of 734.
 
 ### 4.2 Inspect Relationships for One Workload
+
+The `kos relationships` command lists all edges in the graph:
+
+```console
+$ kos relationships
+SOURCE                                                  TYPE                 TARGET                                                  EVIDENCE
+ClusterRoleBinding/argocd-application-controller        BindsSubject         ServiceAccount/argocd/argocd-application-controller     spec.subjects[].name
+ClusterRoleBinding/argocd-application-controller        GrantsRole           ClusterRole/argocd-application-controller               spec.roleRef.name
+Deployment/argocd/argocd-server                         Owns                 ReplicaSet/argocd/argocd-server-6c967757bb              ownerReferences
+Deployment/argocd/argocd-server                         UsesServiceAccount   ServiceAccount/argocd/argocd-server                     spec.serviceAccountName
+Service/observability/node-exporter-prometheus-...      SelectsWorkload      DaemonSet/observability/node-exporter-...               spec.selector
+... 292 additional edges ...
+297 edges, 357 nodes
+```
+
+For one workload:
 
 ```console
 $ kos relationships Deployment argocd-server -n argocd
@@ -686,7 +720,7 @@ Note: removing a Service does not require deleting its selected Deployment. Each
 ### Graph Axis Summary
 
 ```text
-Graph summary (297 structural edges, 357 nodes)
+Graph summary (297 edges from graph.Build; 734 total in export)
   → workload relationships (7 edges for argocd-server)
   → shared resource consumers (argocd-ssh-known-hosts-cm: 3 consumers)
   → dependency path traversal (Service → 7 reachable resources)
@@ -695,7 +729,7 @@ Graph summary (297 structural edges, 357 nodes)
 
 | Question | Command |
 |---|---|
-| How large is the graph? | `kos report` |
+| How large is the graph? | `kos report` / `kos graph export` |
 | What relationships exist? | `kos relationships` |
 | What is connected to one workload? | `kos relationships Deployment <name> -n <ns>` |
 | What consumes a resource? | `kos describe resource ...` (incoming edges) |
