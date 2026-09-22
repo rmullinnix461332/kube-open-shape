@@ -79,10 +79,12 @@ func runShapes(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Structured output (json/yaml) — uses filtered summaries
-	if outputFormat == "json" || outputFormat == "yaml" {
-		allFiltered := append(roleClassifiers, namedShapes...)
-		_, err := outputStructured(allFiltered)
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	allFiltered := append(append([]shape.ShapeSummary{}, roleClassifiers...), namedShapes...)
+	if handled, err := outputResult(map[string]any{
+		"items": allFiltered,
+		"total": len(allFiltered),
+	}); handled {
 		return err
 	}
 

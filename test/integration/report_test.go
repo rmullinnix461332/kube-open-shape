@@ -54,7 +54,7 @@ func TestReport(t *testing.T) {
 		{
 			name: "json report is valid",
 			check: func(t *testing.T) {
-				output := runKos(t, "report", "--format", "json")
+				output := runKos(t, "report", "-o", "json")
 				if !strings.Contains(output, "\"resources\"") {
 					t.Errorf("expected JSON resources field, got:\n%s", output)
 				}

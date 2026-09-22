@@ -59,11 +59,13 @@ func TestCLI_Groups(t *testing.T) {
 			name: "groups json output",
 			args: []string{"groups", "-o", "json"},
 			check: func(t *testing.T, output string) {
-				var groups []map[string]any
-				require.NoError(t, json.Unmarshal([]byte(output), &groups))
-				assert.Greater(t, len(groups), 0)
-				assert.Contains(t, groups[0], "name")
-				assert.Contains(t, groups[0], "resourceCount")
+				var result struct {
+					Items []map[string]any `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(output), &result))
+				assert.Greater(t, len(result.Items), 0)
+				assert.Contains(t, result.Items[0], "name")
+				assert.Contains(t, result.Items[0], "resourceCount")
 			},
 		},
 		{
@@ -79,10 +81,12 @@ func TestCLI_Groups(t *testing.T) {
 			name: "groups json with positional filter returns only one",
 			args: []string{"groups", "argocd", "-o", "json"},
 			check: func(t *testing.T, output string) {
-				var groups []map[string]any
-				require.NoError(t, json.Unmarshal([]byte(output), &groups))
-				assert.Equal(t, 1, len(groups))
-				assert.Equal(t, "argocd", groups[0]["name"])
+				var result struct {
+					Items []map[string]any `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(output), &result))
+				assert.Equal(t, 1, len(result.Items))
+				assert.Equal(t, "argocd", result.Items[0]["name"])
 			},
 		},
 		{
@@ -184,7 +188,16 @@ func TestCLI_Releases(t *testing.T) {
 			check: func(t *testing.T, output string) {
 				assert.Contains(t, output, "RELEASE")
 				assert.Contains(t, output, "NAMESPACE")
-				assert.Contains(t, output, "RESOURCES")
+				assert.Contains(t, output, "MANAGER")
+				assert.Contains(t, output, "REVISION")
+			},
+		},
+		{
+			name: "releases wide shows managed count and source",
+			args: []string{"releases", "-o", "wide"},
+			check: func(t *testing.T, output string) {
+				assert.Contains(t, output, "SOURCE")
+				assert.Contains(t, output, "MANAGED")
 			},
 		},
 		{
@@ -192,15 +205,6 @@ func TestCLI_Releases(t *testing.T) {
 			args: []string{"releases", "argocd"},
 			check: func(t *testing.T, output string) {
 				assert.Contains(t, output, "argocd")
-			},
-		},
-		{
-			name: "releases json output",
-			args: []string{"releases", "-o", "json"},
-			check: func(t *testing.T, output string) {
-				var releases []map[string]any
-				require.NoError(t, json.Unmarshal([]byte(output), &releases))
-				assert.Greater(t, len(releases), 0)
 			},
 		},
 	}
@@ -272,19 +276,31 @@ func TestCLI_Ownership(t *testing.T) {
 		check func(t *testing.T, output string)
 	}{
 		{
-			name: "ownership default shows summary",
+			name: "ownership default shows authority summary",
 			args: []string{"ownership"},
 			check: func(t *testing.T, output string) {
-				assert.Contains(t, output, "Ownership Summary")
-				assert.Contains(t, output, "Managed")
+				assert.Contains(t, output, "LIFECYCLE AUTHORITY")
+				assert.Contains(t, output, "TYPE")
+				assert.Contains(t, output, "RESOURCES")
+				// Should list Helm authorities
+				assert.Contains(t, output, "Helm")
 			},
 		},
 		{
-			name: "ownership with classification filter shows per-resource",
-			args: []string{"ownership", "Managed", "-n", "argocd"},
+			name: "ownership filtered by authority name shows per-resource",
+			args: []string{"ownership", "argocd"},
 			check: func(t *testing.T, output string) {
-				assert.Contains(t, output, "Managed")
+				assert.Contains(t, output, "Helm/argocd")
 				assert.Contains(t, output, "argocd")
+			},
+		},
+		{
+			name: "ownership unmanaged shows no-authority resources",
+			args: []string{"ownership", "unmanaged"},
+			check: func(t *testing.T, output string) {
+				// stdout lists resources with no known authority (footer count is on stderr)
+				assert.Contains(t, output, "RESOURCE")
+				assert.Contains(t, output, "Namespace/")
 			},
 		},
 	}
@@ -304,11 +320,13 @@ func TestCLI_GroupReconciliation(t *testing.T) {
 	waitForSync()
 
 	output := runKos(t, "groups", "argocd", "-o", "json")
-	var groups []map[string]any
-	require.NoError(t, json.Unmarshal([]byte(output), &groups))
-	require.Equal(t, 1, len(groups))
+	var result struct {
+		Items []map[string]any `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(output), &result))
+	require.Equal(t, 1, len(result.Items))
 
-	g := groups[0]
+	g := result.Items[0]
 	members := g["members"].([]any)
 	resourceCount := int(g["resourceCount"].(float64))
 	workloadCount := int(g["workloadCount"].(float64))

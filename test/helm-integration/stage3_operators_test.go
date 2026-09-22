@@ -325,7 +325,7 @@ func TestStage3_AllStagesReport(t *testing.T) {
 	shapesOutput := runKos(t, "shapes")
 	t.Logf("\n=== Shape Classifications ===\n%s", shapesOutput)
 
-	ownerOutput := runKosCombined(t, "ownership", "--summary")
+	ownerOutput := runKosCombined(t, "ownership")
 	t.Logf("\n=== Ownership Summary ===\n%s", ownerOutput)
 
 	reportOutput := runKos(t, "report")

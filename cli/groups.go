@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -12,18 +11,17 @@ import (
 	"github.com/kube-open-shape/kube-open-shape/internal/edge/release"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/yaml"
 )
 
 var groupsFilterType string
 
 func newGroupsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "groups [group-name]",
+		Use:     "groups [group-name]",
 		Aliases: []string{"group"},
-		Short: "List logical application groups, or show detail for one group",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runGroups,
+		Short:   "List logical application groups, or show detail for one group",
+		Args:    cobra.MaximumNArgs(1),
+		RunE:    runGroups,
 	}
 	cmd.Flags().StringVar(&groupsFilterType, "type", "", "Filter by group type (Application, Release, System)")
 	return cmd
@@ -31,11 +29,11 @@ func newGroupsCmd() *cobra.Command {
 
 func newReleasesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "releases [release-name]",
+		Use:     "releases [release-name]",
 		Aliases: []string{"release"},
-		Short: "List Helm releases, or show detail for one release",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runReleases,
+		Short:   "List Helm releases, or show detail for one release",
+		Args:    cobra.MaximumNArgs(1),
+		RunE:    runReleases,
 	}
 	return cmd
 }
@@ -81,8 +79,11 @@ func runGroups(cmd *cobra.Command, args []string) error {
 		filtered = named
 	}
 
-	// Output format
-	if handled, err := outputStructured(filtered); handled {
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	if handled, err := outputResult(map[string]any{
+		"items": filtered,
+		"total": len(filtered),
+	}); handled {
 		return err
 	}
 
@@ -236,8 +237,11 @@ func runReleases(cmd *cobra.Command, args []string) error {
 		releases = filtered
 	}
 
-	// Output format
-	if handled, err := outputStructured(releases); handled {
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	if handled, err := outputResult(map[string]any{
+		"items": releases,
+		"total": len(releases),
+	}); handled {
 		return err
 	}
 
@@ -288,25 +292,6 @@ func printReleaseDetail(rel *release.Release) {
 }
 
 // --- helpers ---
-
-// outputStructured writes data as JSON or YAML based on the global outputFormat.
-// Returns true if it handled the format, false if the caller should use default rendering.
-func outputStructured(v any) (bool, error) {
-	switch outputFormat {
-	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return true, enc.Encode(v)
-	case "yaml":
-		data, err := yaml.Marshal(v)
-		if err != nil {
-			return true, err
-		}
-		fmt.Print(string(data))
-		return true, nil
-	}
-	return false, nil
-}
 
 func normalizeKey(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))

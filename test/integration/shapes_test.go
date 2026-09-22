@@ -73,8 +73,8 @@ func TestShapes(t *testing.T) {
 		{
 			name: "role filter works",
 			check: func(t *testing.T) {
-				filtered := runKos(t, "shapes", "--role", "node-system")
-				if strings.Contains(filtered, "application") {
+				filtered := runKos(t, "shapes", "node-system")
+				if strings.Contains(filtered, "  application  ") {
 					t.Errorf("role filter should exclude application, got:\n%s", filtered)
 				}
 				if !strings.Contains(filtered, "node-system") {

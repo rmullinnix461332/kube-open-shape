@@ -54,16 +54,40 @@ func runRelationships(cmd *cobra.Command, args []string) error {
 
 	// Otherwise show all edges, optionally filtered
 	edges := g.AllEdges()
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "SOURCE\tTYPE\tTARGET\tEVIDENCE\n")
 
+	// Collect (namespace-filtered) edges
+	var filtered []graph.Edge
 	for _, e := range edges {
 		if filterNamespace != "" {
-			// Simple namespace filter on source or target
 			if !containsNamespace(e.Source, filterNamespace) && !containsNamespace(e.Target, filterNamespace) {
 				continue
 			}
 		}
+		filtered = append(filtered, e)
+	}
+
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	items := make([]map[string]any, 0, len(filtered))
+	for _, e := range filtered {
+		items = append(items, map[string]any{
+			"source":     e.Source,
+			"type":       string(e.Type),
+			"target":     e.Target,
+			"evidence":   e.Evidence,
+			"confidence": e.Confidence,
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items": items,
+		"edges": g.EdgeCount(),
+		"nodes": g.NodeCount(),
+	}); handled {
+		return err
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(w, "SOURCE\tTYPE\tTARGET\tEVIDENCE\n")
+	for _, e := range filtered {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Source, e.Type, e.Target, e.Evidence)
 	}
 	w.Flush()
@@ -88,6 +112,20 @@ func runReachable(cmd *cobra.Command, args []string) error {
 	key := kind + "/" + filterNamespace + "/" + name
 	reachable := g.Reachable(key, relDepth)
 
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	items := make([]map[string]any, 0, len(reachable))
+	for _, r := range reachable {
+		items = append(items, map[string]any{"resource": r})
+	}
+	if handled, err := outputResult(map[string]any{
+		"root":  key,
+		"depth": relDepth,
+		"items": items,
+		"total": len(reachable),
+	}); handled {
+		return err
+	}
+
 	fmt.Printf("Resources reachable from %s (depth=%d):\n\n", key, relDepth)
 	for _, r := range reachable {
 		fmt.Printf("  %s\n", r)
@@ -99,6 +137,37 @@ func runReachable(cmd *cobra.Command, args []string) error {
 func printResourceEdges(g *graph.Graph, key string) error {
 	outgoing := g.OutgoingEdges(key)
 	incoming := g.IncomingEdges(key)
+
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	// Flatten to a single items array with a direction field so custom-columns
+	// and jsonpath can address every edge uniformly.
+	items := make([]map[string]any, 0, len(outgoing)+len(incoming))
+	for _, e := range outgoing {
+		items = append(items, map[string]any{
+			"direction":  "outgoing",
+			"peer":       e.Target,
+			"type":       string(e.Type),
+			"evidence":   e.Evidence,
+			"confidence": e.Confidence,
+		})
+	}
+	for _, e := range incoming {
+		items = append(items, map[string]any{
+			"direction":  "incoming",
+			"peer":       e.Source,
+			"type":       string(e.Type),
+			"evidence":   e.Evidence,
+			"confidence": e.Confidence,
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"resource": key,
+		"items":    items,
+		"outgoing": len(outgoing),
+		"incoming": len(incoming),
+	}); handled {
+		return err
+	}
 
 	fmt.Printf("Relationships for: %s\n\n", key)
 

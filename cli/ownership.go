@@ -112,6 +112,27 @@ func printEngineAuthoritySummary(results map[string]*engine.OwnershipResult) err
 		return (sorted[i].s.direct + sorted[i].s.inherited) > (sorted[j].s.direct + sorted[j].s.inherited)
 	})
 
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	sumItems := make([]map[string]any, 0, len(sorted))
+	for _, e := range sorted {
+		resources := e.s.direct + e.s.inherited
+		sumItems = append(sumItems, map[string]any{
+			"authority": e.s.name,
+			"type":      e.s.authType,
+			"resources": resources,
+			"direct":    e.s.direct,
+			"inherited": e.s.inherited,
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items":            sumItems,
+		"total":            total,
+		"knownAuthorities": len(byAuth),
+		"noAuthority":      noAuthority,
+	}); handled {
+		return err
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	if outputFormat == "wide" {
 		fmt.Fprintf(w, "LIFECYCLE AUTHORITY\tTYPE\tRESOURCES\tDIRECT\tINHERITED\tCOVERAGE\n")
@@ -197,6 +218,24 @@ func printEngineAuthorityInventory(results map[string]*engine.OwnershipResult, f
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
 
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	invItems := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		invItems = append(invItems, map[string]any{
+			"resource":    e.key,
+			"authority":   e.authority,
+			"evidence":    e.evidence,
+			"attribution": e.attribution,
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items":            invItems,
+		"total":            len(entries),
+		"authorityRecords": authorityRecords,
+	}); handled {
+		return err
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "RESOURCE\tLIFECYCLE AUTHORITY\tEVIDENCE\tATTRIBUTION\n")
 	for _, e := range entries {
@@ -233,6 +272,18 @@ func printNoAuthority(results map[string]*engine.OwnershipResult) error {
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
+
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	naItems := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		naItems = append(naItems, map[string]any{"resource": e.key})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items": naItems,
+		"total": len(entries),
+	}); handled {
+		return err
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "RESOURCE\n")

@@ -430,7 +430,7 @@ kos candidates affinity list candidate-26b64f33bd03
 
 - `pkg/protocol/` — Open protocol types (shared package)
   - `types.go` — Heartbeat, Event, PolicyBundle, Message, Acknowledgement
-  - `events.go` — OwnershipSummary, ShapeSummary, FindingEvent, ActionEvent
+  - `events.go` — OwnershipSummary, ShapeSummary, ApplicationSummary, FindingEvent, ActionRecordEvent
   - Wire format: JSON (version-tagged)
 - `internal/edge/comm/` — Communication client
   - `client.go` — HTTP client, mTLS support, edge-initiated connections
@@ -573,9 +573,17 @@ These should be resolved before starting implementation:
 
 ## Future Work
 
-### CLI Output Formatting
+### CLI Output Formatting — DONE (2026-08-19)
 
-Support kubectl-compatible structured output options in the global `--output` / `-o` flag:
+Implemented in `cli/output.go` via a shared `outputResult(data any)` dispatcher used by `kos resources`. Supported `-o` values: `json`, `yaml`, `wide`, `jsonpath=EXPR`, `jsonpath-file=FILE`, `custom-columns=SPEC`. JSONPath uses `k8s.io/client-go/util/jsonpath` for kubectl compatibility.
+
+Global flags added (all persistent): `--kubeconfig`, `--context`, `--cluster`, `--server`, `--user`, `--token`, `--certificate-authority`, `--insecure-skip-tls-verify`, `-l`/`--selector`, `--field-selector`, `--sort-by`, `--show-labels`, `--no-headers`.
+
+`--sort-by` (2026-08-19): sorts the structured-output `items` array by an item field path before rendering. Applies to `-o json/yaml/jsonpath/custom-columns` across every list command. Numeric fields sort numerically, others lexicographically, missing keys last. Supports nested dotted paths (e.g. `.scope.homeNamespace`) and kubectl-style `{.field}` syntax. Implemented in `sortItemsBy` (`cli/output.go`); typed-slice results are normalized via JSON round-trip. Unit tests in `cli/output_test.go`.
+
+Extended (2026-08-19): the structured output pipeline (`-o json`, `-o yaml`, `-o jsonpath=`, `-o jsonpath-file=`, `-o custom-columns=`) now applies consistently across every list command — resources, ownership, relationships, reachable, groups, releases, shapes, candidates, findings, rules, plans, and report. All commands build a `map[string]any{"items":[...], ...}` result and route it through the shared `outputResult` dispatcher in `cli/output.go` before falling through to tabular rendering. The `custom-columns` renderer evaluates each column as a JSONPath expression over the items array (`renderCustomColumnsGeneric`). The duplicate `outputStructured` helper was removed. `report` routes its single aggregate object through the same pipeline (json/yaml/jsonpath). The `candidates` command retains the kubectl-style `-o name` shorthand.
+
+Original design (kubectl-compatible structured output for the global `-o` flag):
 
 - `-o jsonpath='{.nodes[*].resource.name}'` — JSONPath expressions against structured output
 - `-o custom-columns=NAME:.resource.name,KIND:.resource.kind,NS:.resource.namespace` — custom column definitions
@@ -829,8 +837,8 @@ Each manager integration requires:
 | 8c | ~~Bidirectional graph traversal for candidates~~ | Structure | **Done** — RBAC chain (ClusterRole, ClusterRoleBinding) now discovered via ancestors |
 | 8d | ~~Candidate listing with PRIMARY/SUPPORTING/CONTEXT~~ | Structure | **Done** — replaces single CORE column, adds AFFINITY and RELATIONSHIPS (wide) |
 | 8e | ~~Generate output as valid YAML with comment context~~ | Structure | **Done** — stdout is pipeable, context as # comments, affinity shown |
-| 9 | Phase 6: Janitor Rules — observe-only rule evaluation, findings | Janitor | Not started |
-| 10 | Release manager extensibility — ArgoCD Application CR watching | Deployment | Not started |
+| 9 | ~~Janitor Safety Model (Phases 1–4)~~ | Janitor | **Done** — Phase 1: observe-only with status/actionability separation. Phase 2: annotate actions with immutable plan digests. Phase 3: neutralize with strategy registry + dependency DAG. Phase 4: conditional delete with action-closure qualification |
+| 10 | ~~ArgoCD Application/ApplicationSet CR watching~~ | Deployment | **Done** — collector watches Application/ApplicationSet CRs, ArgoCDManager extracts release info, auto-reconcile detection |
 | 11 | Phase 7: Protocol + Mock Center — communication client | Protocol | Not started |
 | 12 | Phase 8: Packaging — Helm chart, container image, RBAC | Operations | Not started |
 
@@ -839,18 +847,29 @@ Each manager integration requires:
 | # | Item | Axis | Status |
 |---|------|------|--------|
 | 13 | ~~Ownership engine spec (Phases A–D)~~ | Ownership | **Done** — fact model, catalogs, rules, resolution, extractors all implemented |
-| 14 | Graph axis test strategy and traversal specification | Graph | Not started |
-| 15 | Janitor safety model — qualification rules, blast radius, fail-closed semantics | Janitor | Not started |
-| 16 | Fleet protocol specification — heartbeat, events, aggregation | Protocol | Not started |
+| 14 | ~~Graph axis test strategy and traversal specification~~ | Graph | **Done** — test strategy doc + 63 test cases (57 passing), 62 graph unit tests + 36 CLI integration tests |
+| 15 | ~~Janitor safety model specification~~ | Janitor | **Done** — full specification with status/actionability separation, generic reconciliation model, plan invalidation, deletion qualification, neutralization safety |
+| 16 | Fleet protocol specification — heartbeat, events, aggregation | Protocol | **High-level draft** — event model documented in `2026-08-19-fleet-protocol-spec.md` (upward: Heartbeat, OwnershipSummary, ShapeSummary, ApplicationSummary, FindingEvent, ActionRecordEvent; downward: PolicyBundle, ControllerMessage). Distinguishes fleet **posture** (counts) from fleet **inventory** (ApplicationSummary — per-instance versions, provenance, normalized policy-approved traits). Establishes edge-incarnation dedup, policy-trust invariant (digest + issuer), ControllerMessage/snapshot boundaries, and the KOS visibility limit (no application-internal state without a product collector). Detailed message schemas, wire format, transport, and security deferred to a later revision before Phase 7 implementation. |
+| 17 | Application Detail Extension model — declarative CRD field extraction | Protocol/Extension | **High-level draft** — `2026-08-19-application-detail-extension-spec.md`. Operators define an `ApplicationDetailDefinition` that allowlists CRD fields (path, type, declared/observed state, comparability, sensitivity) which feed `ApplicationSummary`. Generic extraction engine (no product-specific code). Preserves declared-vs-observed evidence semantics. **Executable collectors explicitly out of scope — not a priority, may never be implemented.** Detailed CRD schema, path syntax, normalization rules deferred. |
 
 ### Current State Summary (2026-08-19)
 
 | Axis | Implementation Status | Test Coverage | Remaining Gaps |
 |------|----------------------|---------------|----------------|
 | Organization | Complete | 22 integration tests pass | Minor: JSON/YAML output for all commands |
-| Ownership | Engine complete (Phases A–D), CLI migrated | 11 engine unit + 20 CLI integration | 3 generated Secrets unattributed, 14 namespaces legitimately unknown |
+| Ownership | Engine complete (Phases A–D), old resolver removed | 11 engine unit + 20 CLI integration | 3 generated Secrets unattributed, 14 namespaces legitimately unknown |
 | Structure | Matcher + candidates + named shapes + affinity working | 22 unit + 20 CLI + 16 API integration | No additional named shapes beyond Stateful Application |
-| Graph | Bidirectional traversal, RBAC chain discovery | Covered via shape matching + relationship tests | Cross-namespace references |
-| Deployment | Helm release extraction working | Covered via ownership tests | ArgoCD/Flux manager support |
-| Janitor | Rule engine scaffolded | 3 edge API tests | No observe-only rule evaluation yet |
+| Graph | Complete — builder, traversal, export, CLI | 62 unit + 36 CLI integration (57/63 test cases pass) | 6 adversarial/cross-axis tests not yet run |
+| Deployment | Helm + ArgoCD release extraction | Covered via ownership + authority handoff tests | Flux manager support |
+| Janitor | Safety model Phases 1–4 complete | 14 Phase 1 + 21 Phase 3 + 12 Phase 4 unit tests | Phase 2 approval flow needs live-cluster test |
+
+### Additional Completed Work (2026-08-19)
+
+| Item | Description |
+|------|-------------|
+| Authority handoff (6 phases) | Reconciles/Generates/Provisions edges, safety walk, describe output, group identity persistence |
+| Ownership engine refactor | Fact-based engine with extractors, catalogs, rules, resolution; old resolver removed |
+| `kos report` migration | Uses new ownership engine; consistent counts with `kos ownership` |
+| `graph.Build` simplified | No longer requires ownership results; all CLI/API/edge paths updated |
+| Walkthrough document | Publication-ready with all 4 axes demonstrated against live cluster |
 

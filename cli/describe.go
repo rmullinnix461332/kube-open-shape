@@ -24,7 +24,7 @@ Examples:
   kos describe groups argocd
   kos describe releases argocd
   kos describe shapes application
-  kos describe ownership Managed
+  kos describe ownership argocd
   kos describe resource Deployment argocd-server -n argocd`,
 		Args: cobra.RangeArgs(1, 3),
 		RunE: runDescribe,

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -45,18 +44,42 @@ func runCandidates(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	switch outputFormat {
-	case "name":
+	// "name" is a kubectl-style shorthand: print IDs only.
+	if outputFormat == "name" {
 		for _, g := range groups {
 			fmt.Println(g.ID)
 		}
-	case "json":
-		data, _ := json.MarshalIndent(groups, "", "  ")
-		fmt.Println(string(data))
-	default:
-		// Load affinities for display
-		affinityMap := loadAffinityMap()
+		return nil
+	}
 
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	affinityMap := loadAffinityMap()
+	items := make([]map[string]any, 0, len(groups))
+	for _, group := range groups {
+		primary, supporting, context := classifyCoreKinds(group.RootKind, group.CommonCore)
+		items = append(items, map[string]any{
+			"id":                    group.ID,
+			"rootKind":              group.RootKind,
+			"instances":             len(group.Instances),
+			"recurrence":            group.Evidence.Recurrence,
+			"cohesion":              group.Evidence.Cohesion,
+			"coverage":              group.Evidence.Coverage,
+			"primary":               primary,
+			"supporting":            supporting,
+			"context":               context,
+			"affinity":              formatAffinity(affinityMap, group.ID),
+			"semanticFingerprint":   group.SemanticFP,
+			"mechanicalFingerprint": group.MechanicalFP,
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items": items,
+		"total": len(groups),
+	}); handled {
+		return err
+	}
+
+	{
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		if outputFormat == "wide" {
 			fmt.Fprintf(w, "CANDIDATE\tROOT KIND\tINSTANCES\tRECURRENCE\tPRIMARY\tSUPPORTING\tCONTEXT\tAFFINITY\tRELATIONSHIPS\n")

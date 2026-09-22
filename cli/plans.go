@@ -63,6 +63,29 @@ func runPlans(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list plans: %w", err)
 	}
 
+	now := time.Now()
+
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	items := make([]map[string]any, 0, len(plans))
+	for _, p := range plans {
+		items = append(items, map[string]any{
+			"digest":    p.Digest,
+			"action":    p.Action,
+			"resource":  p.ResourceKey,
+			"rule":      p.RuleName,
+			"status":    p.Status,
+			"findingId": p.FindingID,
+			"age":       formatFindingAge(now.Sub(p.CreatedAt)),
+			"createdAt": p.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items": items,
+		"total": len(plans),
+	}); handled {
+		return err
+	}
+
 	if len(plans) == 0 {
 		fmt.Println("No plans.")
 		return nil
@@ -70,7 +93,6 @@ func runPlans(cmd *cobra.Command, args []string) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "DIGEST\tACTION\tRESOURCE\tRULE\tSTATUS\tAGE\n")
-	now := time.Now()
 	for _, p := range plans {
 		age := formatFindingAge(now.Sub(p.CreatedAt))
 		digestShort := p.Digest

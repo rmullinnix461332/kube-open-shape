@@ -53,7 +53,7 @@ ${KOS} ownership --namespace fixture-stateful 2>&1
 echo ""
 
 echo "=== Ownership Summary ==="
-${KOS} ownership --summary 2>&1
+${KOS} ownership 2>&1
 echo ""
 
 echo "=== Relationships: fixture-a Deployment ==="

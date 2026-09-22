@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -84,10 +83,10 @@ func runReport(cmd *cobra.Command, args []string) error {
 		},
 	}
 
-	if outputFormat == "json" {
-		data, _ := json.MarshalIndent(report, "", "  ")
-		fmt.Println(string(data))
-		return nil
+	// Structured output (json, yaml, jsonpath). The report is a single aggregate
+	// object rather than an items list.
+	if handled, err := outputResult(report); handled {
+		return err
 	}
 
 	// Text format

@@ -35,21 +35,21 @@ kos resources -A                 # all namespaces
 
 ## kos ownership
 
-Show resource ownership classifications.
+Show resource ownership by lifecycle authority.
 
 ```
-kos ownership [classification]
+kos ownership [authority-or-classification]
 ```
 
-Default output is summary counts. Positional arg filters to a specific classification and shows per-resource listing. Use `-o detail` for all resources expanded.
+Default output is the fleet-wide authority summary (each lifecycle authority with its resource, direct, and inherited counts). A positional argument filters to a single authority by name and lists the resources attributed to it. The special value `unmanaged` lists resources with no known authority.
 
-Classifications: PlatformManaged, Managed, Inherited, AdHoc, Unknown, Orphaned, Conflicted
+Authority types: Helm, ArgoCD, KubernetesBootstrap, KubernetesController, ClusterDistribution, Controller.
 
 ```bash
-kos ownership                    # summary counts
-kos ownership Unknown            # per-resource listing for Unknown
-kos ownership Managed -n argocd  # managed resources in argocd
-kos ownership -o detail          # all resources expanded
+kos ownership                    # fleet-wide authority summary
+kos ownership argocd             # resources attributed to the argocd authority
+kos ownership unmanaged          # resources with no known authority
+kos ownership -o wide            # authority summary with coverage percentage
 ```
 
 ---
@@ -281,8 +281,8 @@ kos describe groups argocd           # component hierarchy for argocd
 kos describe groups                  # all application groups expanded
 kos describe releases argocd         # release resource listing
 kos describe shapes application      # shape instances for role
-kos describe ownership Managed       # per-resource detail for classification
-kos describe ownership Managed -n argocd
+kos describe ownership argocd        # authority detail (type, coverage, evidence)
+kos describe resource Deployment argocd-server -n argocd
 ```
 
 ---

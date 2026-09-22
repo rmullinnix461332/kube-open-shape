@@ -74,7 +74,7 @@ func TestRelationships(t *testing.T) {
 		{
 			name: "reachable from deployment includes related resources",
 			check: func(t *testing.T) {
-				output := runKos(t, "reachable", "Deployment", testNamespace, "test-app")
+				output := runKos(t, "reachable", "Deployment", "test-app", "-n", testNamespace)
 				if !strings.Contains(output, "reachable resources") {
 					t.Errorf("expected reachable output, got:\n%s", output)
 				}

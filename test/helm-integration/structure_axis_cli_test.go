@@ -140,8 +140,11 @@ func TestCLI_Candidates(t *testing.T) {
 				assert.Contains(t, output, "ROOT KIND")
 				assert.Contains(t, output, "INSTANCES")
 				assert.Contains(t, output, "RECURRENCE")
-				assert.Contains(t, output, "COHESION")
-				assert.Contains(t, output, "COVERAGE")
+				// PRIMARY/SUPPORTING/CONTEXT replaced the old COHESION/COVERAGE columns;
+				// cohesion and coverage moved to `kos candidates explain`.
+				assert.Contains(t, output, "PRIMARY")
+				assert.Contains(t, output, "SUPPORTING")
+				assert.Contains(t, output, "CONTEXT")
 			},
 		},
 		{

@@ -52,6 +52,29 @@ func runFindings(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list findings: %w", err)
 	}
 
+	now := time.Now()
+
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	items := make([]map[string]any, 0, len(findings))
+	for _, f := range findings {
+		items = append(items, map[string]any{
+			"rule":          f.RuleName,
+			"resource":      f.ResourceKey,
+			"severity":      f.Severity,
+			"status":        f.Status,
+			"actionability": f.Actionability,
+			"reason":        f.Reason,
+			"age":           formatFindingAge(now.Sub(f.FirstSeen)),
+			"grace":         graceDisplay(f, now),
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items": items,
+		"total": len(findings),
+	}); handled {
+		return err
+	}
+
 	if len(findings) == 0 {
 		fmt.Println("No active findings.")
 		return nil
@@ -59,7 +82,6 @@ func runFindings(cmd *cobra.Command, args []string) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "RULE\tRESOURCE\tSEVERITY\tACTIONABILITY\tAGE\tGRACE\n")
-	now := time.Now()
 	for _, f := range findings {
 		age := formatFindingAge(now.Sub(f.FirstSeen))
 		grace := graceDisplay(f, now)
@@ -96,6 +118,27 @@ func runRules(cmd *cobra.Command, args []string) error {
 	defer st.Close()
 
 	rules := janitor.DefaultRules()
+
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	items := make([]map[string]any, 0, len(rules))
+	for _, rule := range rules {
+		active, _ := st.ActiveFindingCountByRule(rule.ID)
+		resolved, _ := st.ResolvedFindingCountByRule(rule.ID)
+		items = append(items, map[string]any{
+			"name":      rule.Name,
+			"severity":  rule.Severity,
+			"evaluator": rule.Evaluator,
+			"maxAction": rule.MaxAction,
+			"active":    active,
+			"resolved":  resolved,
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items": items,
+		"total": len(rules),
+	}); handled {
+		return err
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "NAME\tSEVERITY\tEVALUATOR\tACTIVE\tRESOLVED\n")
@@ -171,6 +214,25 @@ func runFindingsEvaluate(cmd *cobra.Command, args []string) error {
 	// Show summary
 	findings, _ := st.ListFindings("", "", "Active")
 	fmt.Fprintf(os.Stderr, "Evaluation complete: %d active findings across %d rules\n", len(findings), len(rules))
+
+	// Structured output (json, yaml, jsonpath, custom-columns)
+	items := make([]map[string]any, 0, len(findings))
+	for _, f := range findings {
+		items = append(items, map[string]any{
+			"rule":          f.RuleName,
+			"resource":      f.ResourceKey,
+			"severity":      f.Severity,
+			"status":        f.Status,
+			"actionability": f.Actionability,
+			"message":       f.Message,
+		})
+	}
+	if handled, err := outputResult(map[string]any{
+		"items": items,
+		"total": len(findings),
+	}); handled {
+		return err
+	}
 
 	// Show findings
 	if len(findings) == 0 {

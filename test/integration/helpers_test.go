@@ -80,6 +80,18 @@ func runKos(t *testing.T, args ...string) string {
 	return string(out)
 }
 
+// runKosCombined runs kos and captures both stdout and stderr
+func runKosCombined(t *testing.T, args ...string) string {
+	t.Helper()
+	binary := kosBinaryPath()
+	cmd := exec.Command(binary, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("kos %v failed: %v\noutput: %s", args, err, string(out))
+	}
+	return string(out)
+}
+
 // kosBinaryPath returns the path to the kos binary
 func kosBinaryPath() string {
 	// Check if built binary exists

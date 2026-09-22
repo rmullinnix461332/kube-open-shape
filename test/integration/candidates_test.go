@@ -52,17 +52,21 @@ func TestCandidateGroups(t *testing.T) {
 			},
 		},
 		{
-			name: "confidence columns present",
+			name: "listing columns present",
 			check: func(t *testing.T) {
-				// Should show three-dimensional evidence: RECURRENCE, COHESION, COVERAGE
+				// The listing shows RECURRENCE and the three-dimensional composition
+				// (PRIMARY, SUPPORTING, CONTEXT). Cohesion and coverage moved to `explain`.
 				if !strings.Contains(output, "RECURRENCE") {
 					t.Errorf("expected RECURRENCE column, got:\n%s", output)
 				}
-				if !strings.Contains(output, "COHESION") {
-					t.Errorf("expected COHESION column, got:\n%s", output)
+				if !strings.Contains(output, "PRIMARY") {
+					t.Errorf("expected PRIMARY column, got:\n%s", output)
 				}
-				if !strings.Contains(output, "COVERAGE") {
-					t.Errorf("expected COVERAGE column, got:\n%s", output)
+				if !strings.Contains(output, "SUPPORTING") {
+					t.Errorf("expected SUPPORTING column, got:\n%s", output)
+				}
+				if !strings.Contains(output, "CONTEXT") {
+					t.Errorf("expected CONTEXT column, got:\n%s", output)
 				}
 			},
 		},
